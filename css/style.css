@@ -339,11 +339,15 @@ a{ color:inherit; }
 
 @media (min-width:760px){
   body{ align-items:flex-start; }
-  #app{ max-width:1040px; margin:0 auto; min-height:100vh; grid-template-columns:220px 1fr; grid-template-rows:auto 1fr; grid-template-areas:"nav topbar" "nav content"; }
-  .bottom-nav{ flex-direction:column; align-items:stretch; border-top:none; border-right:1px solid var(--border); position:sticky; top:0; height:100vh; padding:18px 8px; gap:3px; }
-  .nav-btn{ flex-direction:row; justify-content:flex-start; gap:10px; padding:10px 14px; font-size:var(--fs-4); }
-  .content{ padding:16px 28px 50px; }
-  .fab{ align-self:center; margin:8px 0; transform:none; }
+  #app{ max-width:1040px; margin:0 auto; min-height:100vh; grid-template-columns:220px 1fr; grid-template-rows:auto 1fr; grid-template-areas:"nav topbar" "nav content"; box-shadow:0 0 0 1px var(--border); }
+  .bottom-nav{ flex-direction:column; align-items:stretch; justify-content:flex-start; border-top:none; border-right:1px solid var(--border); position:sticky; top:0; height:100vh; padding:18px 8px; gap:3px; }
+  .nav-btn{ flex:0 0 auto; flex-direction:row; justify-content:flex-start; gap:10px; padding:10px 14px; font-size:var(--fs-4); border-radius:11px; }
+  .content{ padding:20px 28px 50px; }
+  .fab{ flex:0 0 auto; align-self:stretch; width:auto; height:auto; margin:10px 0 14px; transform:none; border:none; border-radius:11px; flex-direction:row; justify-content:flex-start; gap:10px; padding:10px 14px; box-shadow:none; font-size:var(--fs-4); font-weight:var(--fw-semibold); }
+  .fab svg{ width:18px; height:18px; }
+  .fab::after{ content:"Yeni Ekle"; }
   .overlay{ align-items:center; }
   .sheet{ border-radius:20px; max-height:88vh; }
+  .summary-strip{ padding:16px 10px; }
+  .summary-strip .si .value{ font-size:var(--fs-6); }
 }
