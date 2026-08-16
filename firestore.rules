@@ -1,0 +1,25 @@
+rules_version = '2';
+
+// Hande'M — Firestore security rules.
+//
+// How to install: Firebase Console → your project → Build → Firestore
+// Database → Rules tab → replace everything with this file's contents →
+// Publish.
+//
+// Security model: there is no public self-signup in the app, so the only
+// people who can ever obtain a valid `request.auth` are accounts YOU
+// created yourself in Firebase Console → Authentication → Users. Anyone
+// signed in with one of those accounts is, by construction, someone you
+// explicitly added — so "signed in" is sufficient to allow full read/write
+// access to the shared workspace. There's exactly one workspace ("main")
+// for this single small-agency tool, so nothing here needs to distinguish
+// between multiple teams/tenants.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /workspaces/{workspaceId}/{collection}/{docId} {
+      allow read, write: if request.auth != null;
+    }
+    // Everything else is denied by default — Firestore rules are deny-first,
+    // so no explicit "deny" lines are needed beyond not matching a path.
+  }
+}
