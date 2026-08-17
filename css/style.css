@@ -9,6 +9,7 @@
   --cyan:#06B6D4; --cyan-bg:#E3F8FB; --cyan-dark:#0A7C90;
   --gray-bg:#F1F1F4; --gray-dark:#5B5468;
   --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-t: env(safe-area-inset-top, 0px);
 
   /* ---- typography system ----------------------------------------------
      A single, deliberate type scale + weight scale used everywhere in the
@@ -40,7 +41,7 @@ h1,h2,h3{ font-family:var(--font-sans); margin:0; }
 button{ font-family:inherit; }
 a{ color:inherit; }
 
-.topbar{ grid-area:topbar; position:sticky; top:0; z-index:20; background:var(--bg); padding:14px 16px 8px; display:flex; align-items:center; justify-content:space-between; gap:8px; min-height:34px; position:sticky; }
+.topbar{ grid-area:topbar; position:sticky; top:0; z-index:20; background:var(--bg); padding:calc(14px + var(--safe-t)) 16px 8px; display:flex; align-items:center; justify-content:space-between; gap:8px; min-height:34px; position:sticky; }
 .topbar.centered{ position:sticky; justify-content:flex-end; }
 .topbar .left{ display:flex; align-items:center; gap:10px; min-width:0; }
 .topbar .left .back{ background:var(--bg-soft); border:none; width:30px; height:30px; border-radius:10px; color:var(--primary-dark); cursor:pointer; flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; }
