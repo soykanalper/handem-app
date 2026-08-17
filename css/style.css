@@ -94,7 +94,8 @@ a{ color:inherit; }
 .empty-state{ text-align:center; padding:48px 20px; color:var(--ink-soft); font-size:var(--fs-4); line-height:1.55; }
 .empty-state .emoji{ display:block; margin-bottom:10px; }
 .empty-state b{ display:block; color:var(--ink); font-size:var(--fs-5); font-weight:var(--fw-semibold); margin-bottom:6px; }
-.empty-state .btn{ max-width:220px; margin:14px auto 0; }
+.empty-state p{ margin:0; }
+.empty-state .btn{ display:block; max-width:220px; margin:14px auto 0; }
 
 .section-title{ font-size:var(--fs-2); text-transform:uppercase; letter-spacing:0.5px; color:var(--ink-soft); margin:16px 2px 8px; font-weight:var(--fw-semibold); display:flex; align-items:center; justify-content:space-between; }
 .section-title:first-child{ margin-top:2px; }

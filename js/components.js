@@ -144,7 +144,13 @@ export function vatBadge(vatRate) {
 }
 
 export function emptyState(emoji, title, sub, actionHtml) {
-  return `<div class="empty-state"><span class="emoji">${emoji}</span><b>${escapeHtml(title)}</b>${sub ? escapeHtml(sub) : ''}${actionHtml || ''}</div>`;
+  // `sub` and `actionHtml` are wrapped in their own block-level tags so they
+  // always stack on separate lines. Previously `sub` was a bare inline text
+  // node sitting directly next to the (inline-block) action button — on
+  // narrow mobile widths that wrapped onto its own line by accident, but on
+  // wide desktop screens there was room for both on one line, so the hint
+  // text and the button visually ran into each other.
+  return `<div class="empty-state"><span class="emoji">${emoji}</span><b>${escapeHtml(title)}</b>${sub ? `<p>${escapeHtml(sub)}</p>` : ''}${actionHtml || ''}</div>`;
 }
 
 // ---- multi-photo strip (up to `max` receipt/cheque images) ------------------

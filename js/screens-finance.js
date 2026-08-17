@@ -210,8 +210,7 @@ async function vendorHierarchyBody() {
   html += `<div class="section-title">Ödeme Listesi</div>`;
   const sorted = [...allPayments].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   if (sorted.length === 0) {
-    html += emptyState(icon('landmark', { size: 32 }), 'Henüz ödeme yok', 'Bir mecra/yükleniciye ödeme ekle.',
-      `<button class="btn primary" onclick="H.openPaymentForm({})">+ Ödeme Ekle</button>`);
+    html += emptyState(icon('landmark', { size: 32 }), 'Henüz ödeme yok', 'Sağ üstteki + ile bir mecra/yükleniciye ödeme ekle.');
   } else {
     html += sorted.map((p) => `
       <div class="pay-row" onclick="H.openPaymentDetail('${p.id}')">
@@ -636,8 +635,7 @@ export async function renderTvVendorYears({ vendor }) {
 
   let html = '';
   if (records.length === 0) {
-    html = emptyState(icon('monitor', { size: 32 }), 'Henüz yıllık ristorno kaydı yok', '',
-      `<button class="btn primary" onclick="H.openTvRistornoForm('${jsAttr(vendorName)}')">+ Yıl Ekle</button>`);
+    html = emptyState(icon('monitor', { size: 32 }), 'Henüz yıllık ristorno kaydı yok', 'Sağ üstteki + ile bir yıl ekle.');
   } else {
     html = records.map((r) => `
       <div class="detail-card" style="cursor:pointer;" onclick="H.openTvRistornoForm('${jsAttr(vendorName)}','${r.id}')">

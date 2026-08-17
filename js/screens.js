@@ -54,8 +54,7 @@ export async function renderHome() {
   html += `<div class="section-title"><span class="icon-inline">${icon('users', { size: 13 })} Müşteriler</span></div>`;
 
   if (clients.length === 0) {
-    html += emptyState(icon('users', { size: 32 }), 'Henüz müşterin yok', 'Yeni bir müşteri ekleyerek başla.',
-      `<button class="btn primary" onclick="H.openCustomerForm()">+ Yeni Müşteri</button>`);
+    html += emptyState(icon('users', { size: 32 }), 'Henüz müşterin yok', 'Sağ üstteki + ile başla.');
   } else {
     html += clients.map((r) => `
       <div class="row-card" onclick="H.goto('/customers/${r.client.id}')">
@@ -98,8 +97,7 @@ export async function renderCustomers() {
   const filtered = results.filter((r) => r.client.name.toLowerCase().includes(customerSearch.toLowerCase()));
 
   if (results.length === 0) {
-    html += emptyState(icon('users', { size: 32 }), 'Henüz müşterin yok', 'Yeni bir müşteri ekleyerek başla.',
-      `<button class="btn primary" onclick="H.openCustomerForm()">+ Yeni Müşteri</button>`);
+    html += emptyState(icon('users', { size: 32 }), 'Henüz müşterin yok', 'Sağ üstteki + ile başla.');
   } else if (filtered.length === 0) {
     html += emptyState(icon('search', { size: 32 }), 'Sonuç bulunamadı', 'Farklı bir arama dene.');
   } else {
@@ -177,8 +175,7 @@ export async function renderClientDetail({ clientId }) {
 
   html += `<div class="section-title">Ürünler</div>`;
   if (products.length === 0) {
-    html += emptyState(icon('package', { size: 32 }), 'Henüz ürün yok', 'Bu müşteri için bir ürün ekle.',
-      `<button class="btn primary" onclick="H.openProductForm('${client.id}')">+ Yeni Ürün</button>`);
+    html += emptyState(icon('package', { size: 32 }), 'Henüz ürün yok', 'Sağ üstteki + ile bu müşteri için bir ürün ekle.');
   } else {
     // §56: each product row shows Product Name, Number of Campaigns, Media
     // Types Used AND Vendors/Contractors Used — both lists, each on its own
@@ -277,8 +274,7 @@ export async function renderProductDetail({ clientId, productId }) {
   `;
 
   if (withSummary.length === 0) {
-    html += emptyState(icon('megaphone', { size: 32 }), 'Henüz kampanya yok', 'Bu ürün için bir kampanya oluştur.',
-      `<button class="btn primary" onclick="H.openCampaignForm('${clientId}','${productId}')">+ Yeni Kampanya</button>`);
+    html += emptyState(icon('megaphone', { size: 32 }), 'Henüz kampanya yok', 'Sağ üstteki + ile bu ürün için bir kampanya oluştur.');
   } else if (filtered.length === 0) {
     html += emptyState(icon('search', { size: 32 }), 'Bu filtrede kampanya yok', '');
   } else {
@@ -385,8 +381,7 @@ export async function renderCampaignDetail({ campaignId }) {
   `;
 
   if (media.length === 0) {
-    html += emptyState(icon('monitor', { size: 32 }), 'Henüz mecra kaydı yok', 'Bu kampanyaya TV, radyo, dijital vb. bir mecra ekle.',
-      `<button class="btn primary" onclick="H.openMediaForm('${campaign.id}')">+ Mecra Ekle</button>`);
+    html += emptyState(icon('monitor', { size: 32 }), 'Henüz mecra kaydı yok', 'Sağ üstteki + ile TV, radyo, dijital vb. bir mecra ekle.');
   } else {
     // §65: paid/remaining are recorded per (campaign, vendor) group (spec
     // §23/§62), not per media line — compute each vendor's group figures
