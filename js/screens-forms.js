@@ -6,7 +6,7 @@
 // ---------------------------------------------------------------------------
 import * as repo from './repo.js';
 import * as calc from './calc.js';
-import { fmt, fmtN, todayISO, addDays, escapeHtml, jsAttr, toast, confirmAction, uid } from './util.js';
+import { fmt, fmtN, todayISO, addDays, daysBetween, formatDate, escapeHtml, jsAttr, toast, confirmAction, uid } from './util.js';
 import { openSheet, closeSheet, navigate, refresh, openLightbox, noteFieldHtml } from './ui.js';
 import { pickPhoto } from './photo.js';
 import { chequeStatusChip, photoStripHtml, photoGalleryHtml } from './components.js';
@@ -370,19 +370,52 @@ export async function deleteMedia(mediaId, campaignId) {
 // ============================================================================
 // cheque sub-fields shared by collection + payment forms
 // ============================================================================
-function chequeFieldsHtml() {
+// Tahsilat (Collection) side: a received cheque is *born* here — enter its
+// physical details directly. `linked` (optional) prefills these when
+// editing an existing tahsilat that already has a cheque attached.
+function chequeFieldsHtml(linked) {
   return `
   <div class="payment-group" id="chequeGroup" style="display:none;">
     <div class="payment-group-title">${icon('receipt', { size: 15, className: 'icon-inline' })} Çek Bilgileri</div>
     <div class="row2">
-      <div class="field"><label>Çek Tarihi</label><input id="fChequeDate" type="date" value="${todayISO()}"></div>
-      <div class="field"><label>Vade Tarihi *</label><input id="fChequeDue" type="date"></div>
+      <div class="field"><label>Çek Tarihi</label><input id="fChequeDate" type="date" value="${linked && linked.chequeDate ? linked.chequeDate : todayISO()}"></div>
+      <div class="field"><label>Vade Tarihi *</label><input id="fChequeDue" type="date" value="${linked && linked.dueDate ? linked.dueDate : ''}"></div>
     </div>
     <div class="row2" style="margin-bottom:0;">
-      <div class="field" style="margin-bottom:0;"><label>Banka</label><input id="fChequeBank" placeholder="Banka adı"></div>
-      <div class="field" style="margin-bottom:0;"><label>Çek No</label><input id="fChequeNo" placeholder="Çek numarası"></div>
+      <div class="field" style="margin-bottom:0;"><label>Banka</label><input id="fChequeBank" placeholder="Banka adı" value="${linked ? escapeHtml(linked.bank || '') : ''}"></div>
+      <div class="field" style="margin-bottom:0;"><label>Çek No</label><input id="fChequeNo" placeholder="Çek numarası" value="${linked ? escapeHtml(linked.chequeNumber || '') : ''}"></div>
     </div>
-  </div>
+  </div>`;
+}
+
+// Ödeme (Payment) side: a "verilen çek" is never freshly self-issued — it is
+// always an existing held/received cheque being used (ciro edilir). This
+// renders a picker over currently-unused cheques (plus, when editing, the
+// cheque already linked to this payment) instead of fresh-entry fields.
+function chequeUseFieldsHtml(pickList, selectedId) {
+  if (!pickList || pickList.length === 0) {
+    return `
+    <div class="payment-group" id="chequeUseGroup" style="display:none;">
+      <div class="payment-group-title">${icon('receipt', { size: 15, className: 'icon-inline' })} Kullanılacak Çek</div>
+      <p class="hint">Elinde kullanılmamış çek yok. Önce bir müşteriden çek tahsil et.</p>
+    </div>`;
+  }
+  return `
+  <div class="payment-group" id="chequeUseGroup" style="display:none;">
+    <div class="payment-group-title">${icon('receipt', { size: 15, className: 'icon-inline' })} Kullanılacak Çek</div>
+    <div class="field" style="margin-bottom:0;">
+      <label>Elindeki Çeklerden Seç *</label>
+      <select id="fChequeUsePick">
+        <option value="">Seç…</option>
+        ${pickList.map((c) => `<option value="${c.id}" ${c.id === selectedId ? 'selected' : ''}>${fmt(c.amount)} — ${escapeHtml(c.counterpartyName || '—')} — Vade ${formatDate(c.dueDate)}</option>`).join('')}
+      </select>
+    </div>
+    <p class="hint-note" id="chequeUsePreview" style="font-size:10.5px;color:var(--ink-soft);margin:8px 0 0;font-style:italic;"></p>
+  </div>`;
+}
+
+function vadeliFieldsHtml() {
+  return `
   <div class="payment-group" id="vadeliGroup" style="display:none;">
     <div class="payment-group-title">${icon('clock', { size: 15, className: 'icon-inline' })} Vadeli Ödeme</div>
     <div class="field" style="margin-bottom:0;"><label>Vade (gün)</label><input id="fVadeliDays" type="number" min="1" placeholder="Örn: 30"></div>
@@ -435,14 +468,15 @@ export function viewPhotoDataUrl(src) {
   openLightbox(src);
 }
 
-function wirePaymentTypeToggle(sheet, dateFieldId) {
+function wirePaymentTypeToggle(sheet, dateFieldId, opts = {}) {
+  const chequeGroupId = opts.chequeGroupId || 'chequeGroup';
   const sel = sheet.querySelector('#fPayType');
-  const chequeGroup = sheet.querySelector('#chequeGroup');
+  const chequeGroup = sheet.querySelector('#' + chequeGroupId);
   const vadeliGroup = sheet.querySelector('#vadeliGroup');
   const toggle = () => {
     const v = sel.value;
-    chequeGroup.style.display = v === 'Çek' ? 'block' : 'none';
-    vadeliGroup.style.display = v === 'Vadeli' ? 'block' : 'none';
+    if (chequeGroup) chequeGroup.style.display = v === 'Çek' ? 'block' : 'none';
+    if (vadeliGroup) vadeliGroup.style.display = v === 'Vadeli' ? 'block' : 'none';
   };
   sel.addEventListener('change', toggle);
   toggle();
@@ -456,31 +490,7 @@ function wirePaymentTypeToggle(sheet, dateFieldId) {
       sheet.querySelector('#vadeliPreview').textContent = days > 0 ? `Vade tarihi: ${due.split('-').reverse().join('.')}` : '';
     });
   }
-}
-
-async function saveChequeIfNeeded({ direction, counterpartyName, campaignId, campaignName, amount, date, clientId, vendor }) {
-  const payType = document.getElementById('fPayType').value;
-  if (payType !== 'Çek') return null;
-  const dueDate = document.getElementById('fChequeDue').value;
-  if (!dueDate) { throw new Error('Çek vade tarihi zorunlu'); }
-  const cheque = await repo.createCheque({
-    direction,
-    counterpartyName,
-    campaignId, campaignName,
-    // §73: stamp clientId/vendor (when known) so this cheque surfaces on the
-    // Customer/Campaign/Vendor detail pages, not just Finans→Çekler.
-    clientId: clientId || null,
-    vendor: vendor || null,
-    chequeDate: document.getElementById('fChequeDate').value || date,
-    dueDate,
-    bank: document.getElementById('fChequeBank').value.trim(),
-    chequeNumber: document.getElementById('fChequeNo').value.trim(),
-    amount,
-    photos: formPhotos.slice(),
-    status: null,
-    note: ''
-  });
-  return cheque.id;
+  return { toggle, sel };
 }
 
 function readVadeliDueDate(date) {
@@ -494,42 +504,59 @@ function readVadeliDueDate(date) {
 // TAHSİLAT (Customer Collection)
 // ============================================================================
 export async function openCollectionForm(ctx = {}) {
-  formPhotos = [];
+  const existing = ctx.collectionId ? await repo.getCollection(ctx.collectionId) : null;
+  const linkedCheque = existing && existing.chequeId ? await repo.getCheque(existing.chequeId) : null;
+  formPhotos = existing && existing.photos ? existing.photos.slice() : [];
+
+  const clientId = existing ? existing.clientId : ctx.clientId;
+  const campaignId = existing ? existing.campaignId : ctx.campaignId;
+  const paymentType = existing ? existing.paymentType : ctx.presetPaymentType;
+
   const clients = await repo.getClients();
-  const campaigns = ctx.clientId ? await repo.getCampaignsForClient(ctx.clientId) : [];
+  const campaigns = clientId ? await repo.getCampaignsForClient(clientId) : [];
 
   const html = `
     <button class="close-x" onclick="H.closeSheet()">✕</button>
-    <h2>Tahsilat Ekle</h2>
+    <h2>${existing ? 'Tahsilatı Düzenle' : 'Tahsilat Ekle'}</h2>
     <div class="field"><label>Müşteri *</label>
       <select id="fColClient">
         <option value="">Seç…</option>
-        ${clients.map((c) => `<option value="${c.id}" ${c.id === ctx.clientId ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('')}
+        ${clients.map((c) => `<option value="${c.id}" ${c.id === clientId ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('')}
       </select>
     </div>
     <div class="field"><label>Kampanya *</label>
       <select id="fColCampaign">
-        <option value="">Önce müşteri seç…</option>
-        ${campaigns.map((c) => `<option value="${c.id}" ${c.id === ctx.campaignId ? 'selected' : ''}>${escapeHtml(c.name || c.productName)} (${c.startDate} — ${c.endDate})</option>`).join('')}
+        ${clientId
+          ? `<option value="">Seç…</option>` + campaigns.map((c) => `<option value="${c.id}" ${c.id === campaignId ? 'selected' : ''}>${escapeHtml(c.name || c.productName)} (${c.startDate} — ${c.endDate})</option>`).join('')
+          : `<option value="">Önce müşteri seç…</option>`}
       </select>
     </div>
     <div class="row2">
-      <div class="field"><label>Tarih *</label><input id="fColDate" type="date" value="${todayISO()}"></div>
-      <div class="field"><label>Tutar *</label><input id="fColAmount" type="number" step="0.01" placeholder="0"></div>
+      <div class="field"><label>Tarih *</label><input id="fColDate" type="date" value="${existing ? existing.date : todayISO()}"></div>
+      <div class="field"><label>Tutar *</label><input id="fColAmount" type="number" step="0.01" value="${existing ? existing.amount : ''}" placeholder="0"></div>
     </div>
     <div class="field"><label>Ödeme Türü *</label>
       <select id="fPayType">
-        ${repo.PAYMENT_TYPES.map((t) => `<option value="${t}" ${ctx.presetPaymentType === t ? 'selected' : ''}>${t}</option>`).join('')}
+        ${repo.PAYMENT_TYPES.map((t) => `<option value="${t}" ${paymentType === t ? 'selected' : ''}>${t}</option>`).join('')}
       </select>
     </div>
-    ${chequeFieldsHtml()}
+    ${chequeFieldsHtml(linkedCheque)}
+    ${vadeliFieldsHtml()}
     ${photoSectionHtml()}
-    <div class="field">${noteFieldHtml('fColNote')}</div>
-    <button class="btn primary" onclick="H.saveCollection()">Kaydet</button>
+    <div class="field">${noteFieldHtml('fColNote', existing ? existing.note : '')}</div>
+    <button class="btn primary" onclick="H.saveCollection('${existing ? existing.id : ''}')">Kaydet</button>
   `;
 
   openSheet(html, (sheet) => {
     wirePaymentTypeToggle(sheet, 'fColDate');
+    if (formPhotos.length) renderFormPhotoPreview();
+    if (existing && existing.paymentType === 'Vadeli' && existing.dueDate && existing.date) {
+      const el = sheet.querySelector('#fVadeliDays');
+      if (el) {
+        el.value = daysBetween(existing.date, existing.dueDate);
+        el.dispatchEvent(new Event('input'));
+      }
+    }
     const clientSel = sheet.querySelector('#fColClient');
     const campSel = sheet.querySelector('#fColCampaign');
     const reloadCampaigns = async () => {
@@ -542,7 +569,7 @@ export async function openCollectionForm(ctx = {}) {
   });
 }
 
-export async function saveCollection() {
+export async function saveCollection(collectionId) {
   const clientId = document.getElementById('fColClient').value;
   const campaignId = document.getElementById('fColCampaign').value;
   const date = document.getElementById('fColDate').value;
@@ -555,26 +582,73 @@ export async function saveCollection() {
   if (!date) { toast('Tarih zorunlu', 'error'); return; }
   if (amount === '' || Number(amount) < 0) { toast('Geçerli bir tutar gir', 'error'); return; }
 
+  const existing = collectionId ? await repo.getCollection(collectionId) : null;
+  const existingCheque = existing && existing.chequeId ? await repo.getCheque(existing.chequeId) : null;
+
+  // A cheque that's already been ciro edilmiş/kullanılmış can't silently
+  // lose its cheque just because the payment type changed on this form —
+  // send the user to undo the usage first (§cheque-redesign: keep the
+  // cheque/payment link consistent instead of leaving a dangling reference).
+  if (existingCheque && existingCheque.usedType && paymentType !== 'Çek') {
+    toast('Bu çek zaten kullanılmış/ciro edilmiş. Önce çek sayfasından "Kullanımı Geri Al" ile geri al.', 'error');
+    return;
+  }
+
   const [client, campaign] = await Promise.all([repo.getClient(clientId), repo.getCampaign(campaignId)]);
   const campaignName = campaign ? (campaign.name || campaign.productName) : '';
 
   try {
-    let chequeId = null;
-    try {
-      chequeId = await saveChequeIfNeeded({ direction: 'received', counterpartyName: client ? client.name : '', campaignId, campaignName, amount: Number(amount), date, clientId });
-    } catch (e) {
-      toast(e.message, 'error');
-      return;
+    let chequeId = existing ? existing.chequeId : null;
+    if (paymentType === 'Çek') {
+      const dueDate = document.getElementById('fChequeDue').value;
+      if (!dueDate) { toast('Çek vade tarihi zorunlu', 'error'); return; }
+      const chequeData = {
+        direction: 'received',
+        counterpartyName: client ? client.name : '',
+        campaignId, campaignName,
+        // §73: stamp clientId (when known) so this cheque surfaces on the
+        // Customer/Campaign detail pages, not just Finans→Çekler.
+        clientId: clientId || null,
+        chequeDate: document.getElementById('fChequeDate').value || date,
+        dueDate,
+        bank: document.getElementById('fChequeBank').value.trim(),
+        chequeNumber: document.getElementById('fChequeNo').value.trim(),
+        amount: Number(amount),
+        photos: formPhotos.slice()
+      };
+      if (chequeId) {
+        await repo.updateCheque(chequeId, chequeData);
+        // Keep an already-endorsed payment's amount in sync with a
+        // corrected cheque amount, so the two never drift apart.
+        if (existingCheque && existingCheque.usedType === 'vendor' && existingCheque.usedPaymentId) {
+          await repo.updatePayment(existingCheque.usedPaymentId, { amount: Number(amount) });
+        }
+      } else {
+        const created = await repo.createCheque({ ...chequeData, status: null, note: '' });
+        chequeId = created.id;
+      }
+    } else if (chequeId) {
+      // Type changed away from Çek on an unused cheque (guard above already
+      // blocked this when the cheque was in use) — it no longer applies.
+      await repo.deleteCheque(chequeId);
+      chequeId = null;
     }
+
     const dueDate = readVadeliDueDate(date);
-    await repo.createCollection({
+    const data = {
       clientId, clientName: client ? client.name : '',
       campaignId, campaignName,
       date, amount: Number(amount), paymentType, note,
       chequeId, dueDate,
       photos: formPhotos.slice()
-    });
-    toast('Tahsilat eklendi', 'success');
+    };
+    if (collectionId) {
+      await repo.updateCollection(collectionId, data);
+      toast('Tahsilat güncellendi', 'success');
+    } else {
+      await repo.createCollection(data);
+      toast('Tahsilat eklendi', 'success');
+    }
     formPhotos = [];
     closeSheet();
     refresh();
@@ -584,8 +658,15 @@ export async function saveCollection() {
 }
 
 export async function deleteCollection(collectionId) {
-  if (!confirmAction('Bu tahsilatı silmek istiyor musun?')) return;
   const col = await repo.getCollection(collectionId);
+  const cheque = col && col.chequeId ? await repo.getCheque(col.chequeId) : null;
+  let msg = 'Bu tahsilatı silmek istiyor musun?';
+  if (cheque && cheque.usedType === 'vendor') msg = `Bu çek "${cheque.usedVendor}" için ciro edilmiş — silersen bağlı ödeme kaydı da silinecek. ` + msg;
+  else if (cheque && cheque.usedType === 'other') msg = `Bu çek "${cheque.usedText}" olarak işaretlenmiş. ` + msg;
+  if (!confirmAction(msg)) return;
+  if (cheque && cheque.usedType === 'vendor' && cheque.usedPaymentId) {
+    await repo.deletePayment(cheque.usedPaymentId);
+  }
   await repo.deleteCollection(collectionId);
   if (col && col.chequeId) await repo.deleteCheque(col.chequeId);
   toast('Tahsilat silindi', 'success');
@@ -597,47 +678,99 @@ export async function deleteCollection(collectionId) {
 // ÖDEME (Vendor Payment)
 // ============================================================================
 export async function openPaymentForm(ctx = {}) {
-  formPhotos = [];
+  const existing = ctx.paymentId ? await repo.getPayment(ctx.paymentId) : null;
+  formPhotos = existing && existing.photos ? existing.photos.slice() : [];
+
+  const clientId = existing ? existing.clientId : ctx.clientId;
+  const campaignId = existing ? existing.campaignId : ctx.campaignId;
+  const vendorPreset = existing ? existing.vendor : ctx.vendor;
+  const paymentType = existing ? existing.paymentType : ctx.presetPaymentType;
+  const selectedChequeId = existing ? existing.chequeId : (ctx.presetChequeId || null);
+
   const clients = await repo.getClients();
-  const campaigns = ctx.clientId ? await repo.getCampaignsForClient(ctx.clientId) : [];
+  const campaigns = clientId ? await repo.getCampaignsForClient(clientId) : [];
   const vendors = await repo.getAllVendorNames();
+
+  // Pick-list for "Çek" type: every currently-held (unused) cheque, plus —
+  // when editing a payment that's already using one — that cheque itself,
+  // even though it no longer counts as "held".
+  const held = await repo.getHeldCheques();
+  let pickList = held;
+  if (existing && existing.chequeId) {
+    const linked = await repo.getCheque(existing.chequeId);
+    if (linked && !pickList.some((c) => c.id === linked.id)) pickList = [linked, ...pickList];
+  }
 
   const html = `
     <button class="close-x" onclick="H.closeSheet()">✕</button>
-    <h2>Ödeme Ekle</h2>
+    <h2>${existing ? 'Ödemeyi Düzenle' : 'Ödeme Ekle'}</h2>
     <div class="field"><label>Müşteri *</label>
       <select id="fPayClient">
         <option value="">Seç…</option>
-        ${clients.map((c) => `<option value="${c.id}" ${c.id === ctx.clientId ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('')}
+        ${clients.map((c) => `<option value="${c.id}" ${c.id === clientId ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('')}
       </select>
     </div>
     <div class="field"><label>Kampanya *</label>
       <select id="fPayCampaign">
-        <option value="">Önce müşteri seç…</option>
-        ${campaigns.map((c) => `<option value="${c.id}" ${c.id === ctx.campaignId ? 'selected' : ''}>${escapeHtml(c.name || c.productName)} (${c.startDate} — ${c.endDate})</option>`).join('')}
+        ${clientId
+          ? `<option value="">Seç…</option>` + campaigns.map((c) => `<option value="${c.id}" ${c.id === campaignId ? 'selected' : ''}>${escapeHtml(c.name || c.productName)} (${c.startDate} — ${c.endDate})</option>`).join('')
+          : `<option value="">Önce müşteri seç…</option>`}
       </select>
     </div>
     <div class="field"><label>Yüklenici *</label>
-      <input id="fPayVendor" list="vendorListPay" placeholder="Yüklenici seç veya yaz" value="${ctx.vendor ? escapeHtml(ctx.vendor) : ''}">
+      <input id="fPayVendor" list="vendorListPay" placeholder="Yüklenici seç veya yaz — listede yoksa yeni bir isim de yazabilirsin" value="${vendorPreset ? escapeHtml(vendorPreset) : ''}">
       ${datalist('vendorListPay', vendors)}
     </div>
     <div class="row2">
-      <div class="field"><label>Tarih *</label><input id="fPayDate" type="date" value="${todayISO()}"></div>
-      <div class="field"><label>Tutar *</label><input id="fPayAmount" type="number" step="0.01" placeholder="0"></div>
+      <div class="field"><label>Tarih *</label><input id="fPayDate" type="date" value="${existing ? existing.date : todayISO()}"></div>
+      <div class="field"><label>Tutar *</label><input id="fPayAmount" type="number" step="0.01" value="${existing ? existing.amount : ''}" placeholder="0"></div>
     </div>
     <div class="field"><label>Ödeme Türü *</label>
       <select id="fPayType">
-        ${repo.PAYMENT_TYPES.map((t) => `<option value="${t}" ${ctx.presetPaymentType === t ? 'selected' : ''}>${t}</option>`).join('')}
+        ${repo.PAYMENT_TYPES.map((t) => `<option value="${t}" ${paymentType === t ? 'selected' : ''}>${t}</option>`).join('')}
       </select>
     </div>
-    ${chequeFieldsHtml()}
+    ${chequeUseFieldsHtml(pickList, selectedChequeId)}
+    ${vadeliFieldsHtml()}
     ${photoSectionHtml()}
-    <div class="field">${noteFieldHtml('fPayNote')}</div>
-    <button class="btn primary" onclick="H.savePayment()">Kaydet</button>
+    <div class="field">${noteFieldHtml('fPayNote', existing ? existing.note : '')}</div>
+    <button class="btn primary" onclick="H.savePayment('${existing ? existing.id : ''}')">Kaydet</button>
   `;
 
   openSheet(html, (sheet) => {
-    wirePaymentTypeToggle(sheet, 'fPayDate');
+    wirePaymentTypeToggle(sheet, 'fPayDate', { chequeGroupId: 'chequeUseGroup' });
+    if (formPhotos.length) renderFormPhotoPreview();
+    if (existing && existing.paymentType === 'Vadeli' && existing.dueDate && existing.date) {
+      const el = sheet.querySelector('#fVadeliDays');
+      if (el) {
+        el.value = daysBetween(existing.date, existing.dueDate);
+        el.dispatchEvent(new Event('input'));
+      }
+    }
+
+    // Çek type: picking a held cheque fills & locks the amount to that
+    // cheque's own amount (a cheque is always used whole, never split).
+    const amountInput = sheet.querySelector('#fPayAmount');
+    const chequePick = sheet.querySelector('#fChequeUsePick');
+    const chequePreview = sheet.querySelector('#chequeUsePreview');
+    const typeSel = sheet.querySelector('#fPayType');
+    const syncChequeAmount = () => {
+      const picked = pickList.find((c) => c.id === (chequePick ? chequePick.value : ''));
+      if (picked) {
+        amountInput.value = picked.amount;
+        amountInput.readOnly = true;
+        if (chequePreview) chequePreview.textContent = `Banka: ${picked.bank || '—'} · No: ${picked.chequeNumber || '—'} · Çek Tarihi: ${formatDate(picked.chequeDate)}`;
+      } else {
+        if (chequePreview) chequePreview.textContent = '';
+      }
+    };
+    if (chequePick) chequePick.addEventListener('change', syncChequeAmount);
+    typeSel.addEventListener('change', () => {
+      if (typeSel.value === 'Çek') syncChequeAmount();
+      else amountInput.readOnly = false;
+    });
+    if (paymentType === 'Çek') syncChequeAmount();
+
     const clientSel = sheet.querySelector('#fPayClient');
     const campSel = sheet.querySelector('#fPayCampaign');
     const reloadCampaigns = async () => {
@@ -650,12 +783,11 @@ export async function openPaymentForm(ctx = {}) {
   });
 }
 
-export async function savePayment() {
+export async function savePayment(paymentId) {
   const clientId = document.getElementById('fPayClient').value;
   const campaignId = document.getElementById('fPayCampaign').value;
   const vendor = document.getElementById('fPayVendor').value.trim();
   const date = document.getElementById('fPayDate').value;
-  const amount = document.getElementById('fPayAmount').value;
   const paymentType = document.getElementById('fPayType').value;
   const note = document.getElementById('fPayNote').value.trim();
 
@@ -663,29 +795,58 @@ export async function savePayment() {
   if (!campaignId) { toast('Kampanya seçmelisin', 'error'); return; }
   if (!vendor) { toast('Yüklenici seçmelisin', 'error'); return; }
   if (!date) { toast('Tarih zorunlu', 'error'); return; }
-  if (amount === '' || Number(amount) < 0) { toast('Geçerli bir tutar gir', 'error'); return; }
+
+  const existing = paymentId ? await repo.getPayment(paymentId) : null;
+  const prevChequeId = existing ? existing.chequeId : null;
+
+  let chequeId = null;
+  let amount;
+  if (paymentType === 'Çek') {
+    chequeId = document.getElementById('fChequeUsePick').value;
+    if (!chequeId) { toast('Kullanılacak çeki seç', 'error'); return; }
+    const usedCheque = await repo.getCheque(chequeId);
+    if (!usedCheque) { toast('Seçili çek bulunamadı', 'error'); return; }
+    amount = Number(usedCheque.amount);
+  } else {
+    const amountRaw = document.getElementById('fPayAmount').value;
+    if (amountRaw === '' || Number(amountRaw) < 0) { toast('Geçerli bir tutar gir', 'error'); return; }
+    amount = Number(amountRaw);
+  }
 
   const [client, campaign] = await Promise.all([repo.getClient(clientId), repo.getCampaign(campaignId)]);
   const campaignName = campaign ? (campaign.name || campaign.productName) : '';
 
   try {
-    let chequeId = null;
-    try {
-      chequeId = await saveChequeIfNeeded({ direction: 'given', counterpartyName: vendor, campaignId, campaignName, amount: Number(amount), date, clientId, vendor });
-    } catch (e) {
-      toast(e.message, 'error');
-      return;
-    }
     const dueDate = readVadeliDueDate(date);
     await repo.addVendorName(vendor);
-    await repo.createPayment({
+    const data = {
       clientId, clientName: client ? client.name : '',
       campaignId, campaignName, vendor,
-      date, amount: Number(amount), paymentType, note,
+      date, amount, paymentType, note,
       chequeId, dueDate,
       photos: formPhotos.slice()
-    });
-    toast('Ödeme eklendi', 'success');
+    };
+    let saved;
+    if (paymentId) {
+      saved = await repo.updatePayment(paymentId, data);
+      toast('Ödeme güncellendi', 'success');
+    } else {
+      saved = await repo.createPayment(data);
+      toast('Ödeme eklendi', 'success');
+    }
+
+    // Keep the cheque's own "kime verildi" state in sync with this payment.
+    if (prevChequeId && prevChequeId !== chequeId) {
+      await repo.updateCheque(prevChequeId, { usedType: null, usedVendor: null, usedCampaignId: null, usedCampaignName: null, usedDate: null, usedPaymentId: null });
+    }
+    if (chequeId) {
+      await repo.updateCheque(chequeId, {
+        usedType: 'vendor', usedVendor: vendor,
+        usedCampaignId: campaignId, usedCampaignName: campaignName,
+        usedDate: date, usedPaymentId: saved.id
+      });
+    }
+
     formPhotos = [];
     closeSheet();
     refresh();
@@ -698,7 +859,12 @@ export async function deletePayment(paymentId) {
   if (!confirmAction('Bu ödemeyi silmek istiyor musun?')) return;
   const pay = await repo.getPayment(paymentId);
   await repo.deletePayment(paymentId);
-  if (pay && pay.chequeId) await repo.deleteCheque(pay.chequeId);
+  if (pay && pay.chequeId) {
+    // The cheque itself isn't tied to this payment's existence — it was
+    // born from its own tahsilat — so deleting the endorsement just
+    // returns it to "Elde" instead of deleting the cheque.
+    await repo.updateCheque(pay.chequeId, { usedType: null, usedVendor: null, usedCampaignId: null, usedCampaignName: null, usedDate: null, usedPaymentId: null });
+  }
   toast('Ödeme silindi', 'success');
   closeSheet();
   refresh();
@@ -746,6 +912,7 @@ async function showTransactionDetail(rec, kind, targetLabel) {
     ${rec.dueDate ? `<div class="detail-row"><span class="k">Vade Tarihi</span><span class="v">${rec.dueDate.split('-').reverse().join('.')}</span></div>` : ''}
     ${recPhotos.length ? `<div class="field" style="margin-top:6px;"><label>${icon('image', { size: 13, className: 'icon-inline' })} Makbuz Fotoğrafları</label>${photoGalleryHtml(recPhotos)}</div>` : ''}
     ${rec.note ? `<div class="note-box"><b>Not</b>${escapeHtml(rec.note)}</div>` : ''}
+    <button class="btn small outline" style="width:100%;margin-bottom:8px;" onclick="H.closeSheet();H.${kind === 'collection' ? 'openCollectionForm' : 'openPaymentForm'}({${kind === 'collection' ? 'collectionId' : 'paymentId'}:'${rec.id}'})">${icon('pencil', { size: 14, className: 'icon-inline' })} Düzenle</button>
     <button class="btn danger" onclick="H.${kind === 'collection' ? 'deleteCollection' : 'deletePayment'}('${rec.id}')">Sil</button>
   `;
   openSheet(html);
@@ -830,14 +997,95 @@ export function quickNewCampaignConfirm() {
   openCampaignForm(clientId, productId);
 }
 
+// §cheque-redesign: a cheque is always born as "alınan" from a tahsilat —
+// there's no more "verilen çek" entry point here, since giving/endorsing a
+// cheque onward always starts from an existing held cheque (see
+// openChequeUseForm, reached from the cheque's own detail page).
 export function quickNewCheque() {
   const html = `
     <button class="close-x" onclick="H.closeSheet()">✕</button>
-    <h2>Çek Yönü</h2>
+    <h2>Çek İşlemi</h2>
     <div class="action-sheet-list">
-      <button class="action-item" onclick="H.closeSheet();H.openCollectionForm({presetPaymentType:'Çek'})"><span class="ico">${icon('arrowDownCircle', { size: 18 })}</span>Alınan Çek (Tahsilat)</button>
-      <button class="action-item" onclick="H.closeSheet();H.openPaymentForm({presetPaymentType:'Çek'})"><span class="ico">${icon('arrowUpCircle', { size: 18 })}</span>Verilen Çek (Ödeme)</button>
+      <button class="action-item" onclick="H.closeSheet();H.openCollectionForm({presetPaymentType:'Çek'})"><span class="ico">${icon('arrowDownCircle', { size: 18 })}</span>Yeni Çek Al (Tahsilat)</button>
+      <button class="action-item" onclick="H.closeSheet();H.goto('/finance/cheques')"><span class="ico">${icon('receipt', { size: 18 })}</span>Elimdeki Çekleri Kullan / Ciro Et</button>
     </div>
   `;
   openSheet(html);
+}
+
+// ============================================================================
+// ÇEK KULLANIMI (endorse to a vendor / bank / cash-drawer / anywhere else)
+// ============================================================================
+export function openChequeUseForm(chequeId) {
+  const html = `
+    <button class="close-x" onclick="H.closeSheet()">✕</button>
+    <h2>Bu Çeki Kullan</h2>
+    <div class="action-sheet-list">
+      <button class="action-item" onclick="H.closeSheet();H.openPaymentForm({presetPaymentType:'Çek',presetChequeId:'${chequeId}'})"><span class="ico">${icon('landmark', { size: 18 })}</span>Bir Yükleniciye/Mecraya Öde (Ciro Et)</button>
+      <button class="action-item" onclick="H.openChequeMarkOtherForm('${chequeId}')"><span class="ico">${icon('wallet', { size: 18 })}</span>Bankaya Yatır / Kasada Tut / Başka Yere Ver</button>
+    </div>
+  `;
+  openSheet(html);
+}
+
+export async function openChequeMarkOtherForm(chequeId) {
+  const cheque = await repo.getCheque(chequeId);
+  const html = `
+    <button class="close-x" onclick="H.closeSheet()">✕</button>
+    <h2>Çek Nereye Gitti?</h2>
+    <div class="field">
+      <label>Nereye / Kime *</label>
+      <input id="fChequeOtherText" placeholder="Örn: Banka, Kasa, ya da bir isim" value="${cheque && cheque.usedType === 'other' ? escapeHtml(cheque.usedText || '') : ''}">
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <button type="button" class="btn small outline" onclick="document.getElementById('fChequeOtherText').value='Banka'">Banka</button>
+        <button type="button" class="btn small outline" onclick="document.getElementById('fChequeOtherText').value='Kasa'">Kasa</button>
+      </div>
+    </div>
+    <div class="field"><label>Tarih *</label><input id="fChequeOtherDate" type="date" value="${cheque && cheque.usedDate ? cheque.usedDate : todayISO()}"></div>
+    <button class="btn primary" onclick="H.saveChequeMarkOther('${chequeId}')">Kaydet</button>
+  `;
+  openSheet(html);
+}
+
+export async function saveChequeMarkOther(chequeId) {
+  const text = document.getElementById('fChequeOtherText').value.trim();
+  const date = document.getElementById('fChequeOtherDate').value;
+  if (!text) { toast('Nereye/kime verdiğini yaz', 'error'); return; }
+  if (!date) { toast('Tarih zorunlu', 'error'); return; }
+  await repo.updateCheque(chequeId, { usedType: 'other', usedText: text, usedDate: date, usedVendor: null, usedCampaignId: null, usedCampaignName: null, usedPaymentId: null });
+  toast('Çek güncellendi', 'success');
+  closeSheet();
+  refresh();
+}
+
+export async function undoChequeUse(chequeId) {
+  const cheque = await repo.getCheque(chequeId);
+  if (!cheque) return;
+  const msg = cheque.usedType === 'vendor'
+    ? `Bu çek "${cheque.usedVendor}" için ciro edilmişti — geri alırsan bağlı ödeme kaydı da silinecek. Emin misin?`
+    : 'Bu çeki tekrar "Elde" durumuna almak istiyor musun?';
+  if (!confirmAction(msg)) return;
+  if (cheque.usedType === 'vendor' && cheque.usedPaymentId) {
+    await repo.deletePayment(cheque.usedPaymentId);
+  }
+  await repo.updateCheque(chequeId, { usedType: null, usedVendor: null, usedCampaignId: null, usedCampaignName: null, usedText: null, usedDate: null, usedPaymentId: null });
+  toast('Çek "Elde" durumuna alındı', 'success');
+  refresh();
+}
+
+export async function deleteChequeRecord(chequeId) {
+  const cheque = await repo.getCheque(chequeId);
+  const col = cheque ? await repo.getCollectionByChequeId(chequeId) : null;
+  let msg = 'Bu çeki silmek istiyor musun?';
+  if (cheque && cheque.usedType === 'vendor') msg = `Bu çek "${cheque.usedVendor}" için ciro edilmiş — silersen bağlı ödeme kaydı da silinecek. ` + msg;
+  else if (cheque && cheque.usedType === 'other') msg = `Bu çek "${cheque.usedText}" olarak işaretlenmiş. ` + msg;
+  if (col) msg += ' Bu çeki oluşturan tahsilat kaydı da silinecek.';
+  if (!confirmAction(msg)) return;
+  if (cheque && cheque.usedType === 'vendor' && cheque.usedPaymentId) {
+    await repo.deletePayment(cheque.usedPaymentId);
+  }
+  if (col) await repo.deleteCollection(col.id);
+  await repo.deleteCheque(chequeId);
+  toast('Çek silindi', 'success');
+  navigate('/finance/cheques');
 }

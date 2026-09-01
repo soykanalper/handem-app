@@ -402,7 +402,10 @@ export async function renderFinanceVendorDetail({ vendor }) {
 // ============================================================================
 // FINANS → ÇEKLER
 // ============================================================================
-let chequeDirection = 'received';
+// §cheque-redesign: every cheque is now born "received" from a tahsilat, so
+// the meaningful split is no longer received/given — it's whether the
+// cheque is still held ("Elde") or has already been used/endorsed onward.
+let chequeUseTab = 'held';
 let chequeFilter = 'tumu';
 
 export async function renderCheques() {
@@ -417,8 +420,8 @@ export async function renderCheques() {
   let html = tabStrip('cheques');
   html += `
     <div class="segmented">
-      <button class="seg-btn ${chequeDirection === 'received' ? 'active' : ''}" onclick="H.setChequeTab('received')">Alınan Çekler</button>
-      <button class="seg-btn ${chequeDirection === 'given' ? 'active' : ''}" onclick="H.setChequeTab('given')">Verilen Çekler</button>
+      <button class="seg-btn ${chequeUseTab === 'held' ? 'active' : ''}" onclick="H.setChequeTab('held')">Elimde</button>
+      <button class="seg-btn ${chequeUseTab === 'used' ? 'active' : ''}" onclick="H.setChequeTab('used')">Kullanılan / Verilen</button>
     </div>
   `;
 
@@ -428,7 +431,7 @@ export async function renderCheques() {
   ];
   html += `<div class="pills">` + filters.map(([k, label]) => `<button class="pill ${chequeFilter === k ? 'active' : ''}" onclick="H.setChequeFilter('${k}')">${label}</button>`).join('') + `</div>`;
 
-  let list = all.filter((c) => c.direction === chequeDirection);
+  let list = all.filter((c) => (chequeUseTab === 'held' ? !c.usedType : !!c.usedType));
   list = list.filter((c) => {
     const status = calc.chequeDisplayStatus(c, today);
     if (chequeFilter === 'tumu') return true;
@@ -459,7 +462,7 @@ export async function renderCheques() {
   setContent(html);
 }
 
-export function setChequeTab(dir) { chequeDirection = dir; renderCheques(); }
+export function setChequeTab(tab) { chequeUseTab = tab; renderCheques(); }
 export function setChequeFilter(f) { chequeFilter = f; renderCheques(); }
 
 export async function renderChequeDetail({ chequeId }) {
@@ -477,11 +480,22 @@ export async function renderChequeDetail({ chequeId }) {
   `);
 
   const status = calc.chequeDisplayStatus(cheque, todayISO());
+  const linkedCollection = await repo.getCollectionByChequeId(cheque.id);
+
+  let usedLine;
+  if (cheque.usedType === 'vendor') {
+    usedLine = `${escapeHtml(cheque.usedVendor || '—')}${cheque.usedCampaignName ? ' — ' + escapeHtml(cheque.usedCampaignName) : ''}${cheque.usedDate ? ' (' + formatDate(cheque.usedDate) + ')' : ''}`;
+  } else if (cheque.usedType === 'other') {
+    usedLine = `${escapeHtml(cheque.usedText || '—')}${cheque.usedDate ? ' (' + formatDate(cheque.usedDate) + ')' : ''}`;
+  } else {
+    usedLine = 'Elde, henüz kullanılmadı';
+  }
+
   let html = `
     <div class="detail-card">
       <div class="detail-row"><span class="k">Durum</span><span class="v">${chequeStatusChip(cheque)}</span></div>
-      <div class="detail-row"><span class="k">${cheque.direction === 'received' ? 'Müşteri' : 'Yüklenici'}</span><span class="v">${escapeHtml(cheque.counterpartyName || '—')}</span></div>
-      <div class="detail-row"><span class="k">Kampanya</span><span class="v">${escapeHtml(cheque.campaignName || '—')}</span></div>
+      <div class="detail-row"><span class="k">Alındı</span><span class="v">${escapeHtml(cheque.counterpartyName || '—')}${cheque.campaignName ? ' — ' + escapeHtml(cheque.campaignName) : ''}</span></div>
+      <div class="detail-row"><span class="k">Verildi</span><span class="v">${usedLine}</span></div>
       <div class="detail-row total"><span class="k">Tutar</span><span class="v">${fmt(cheque.amount)}</span></div>
       <div class="detail-row"><span class="k">Çek Tarihi</span><span class="v">${formatDate(cheque.chequeDate)}</span></div>
       <div class="detail-row"><span class="k">Vade Tarihi</span><span class="v">${formatDate(cheque.dueDate)}</span></div>
@@ -494,6 +508,13 @@ export async function renderChequeDetail({ chequeId }) {
       return photos.length ? `<div class="detail-card"><h3>Fotoğraflar</h3>${photoGalleryHtml(photos)}</div>` : '';
     })()}
     <div class="detail-card">
+      <h3>Çeki Kullan</h3>
+      ${cheque.usedType
+        ? `<p class="hint" style="margin-bottom:10px;">Bu çek şu anda: <b>${usedLine}</b></p><button class="btn small outline" style="width:100%;" onclick="H.undoChequeUse('${cheque.id}')">Kullanımı Geri Al</button>`
+        : `<button class="btn primary" style="width:100%;" onclick="H.openChequeUseForm('${cheque.id}')">${icon('receipt', { size: 15, className: 'icon-inline' })} Bu Çeki Kullan (Ciro Et / Bankaya Yatır / Kasada Tut)</button>`}
+    </div>
+    ${linkedCollection ? `<button class="btn small outline" style="width:100%;margin-bottom:8px;" onclick="H.openCollectionDetail('${linkedCollection.id}')">${icon('banknote', { size: 15, className: 'icon-inline' })} Bağlı Tahsilatı Görüntüle / Düzenle</button>` : ''}
+    <div class="detail-card">
       <h3>Durumu Güncelle</h3>
       <div class="status-select-row">
         ${calc.CHEQUE_MANUAL_STATUSES.map((s) => `<button class="status-opt ${cheque.status === s ? 'active' : ''}" onclick="H.setChequeStatus('${cheque.id}','${s}')">${s}</button>`).join('')}
@@ -501,6 +522,7 @@ export async function renderChequeDetail({ chequeId }) {
       </div>
       <p class="hint" style="margin-top:8px;">Vade tarihi geldiğinde çek otomatik olarak "Vadesi Gelen" gösterilir; ödendi/karşılıksız/iptal durumunu sen işaretlersin.</p>
     </div>
+    <button class="btn danger" onclick="H.deleteChequeRecord('${cheque.id}')">Çeki Sil</button>
   `;
 
   setContent(html);

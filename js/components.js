@@ -96,14 +96,23 @@ export function payRowHtml(p, { onDelete, showTarget, onClick } = {}) {
 export function chequeStatusChip(cheque) {
   const status = calc.chequeDisplayStatus(cheque, todayISO());
   const map = {
-    'Alındı': 'cyan', 'Verildi': 'cyan', 'Vadesi Gelen': 'amber',
+    'Elde': 'cyan', 'Kullanıldı': 'cyan', 'Vadesi Gelen': 'amber',
     'Ödendi': 'green', 'Karşılıksız': 'red', 'İptal': 'gray'
   };
   return `<span class="chip ${map[status] || 'neutral'}">${status}</span>`;
 }
 
+// Short "→ nereye/kime verildi" fragment shown wherever a cheque row is
+// listed, so where a cheque ended up is visible without opening it.
+export function chequeUsedFragment(cheque) {
+  if (cheque.usedType === 'vendor') return `${cheque.usedVendor || ''}${cheque.usedCampaignName ? ' (' + cheque.usedCampaignName + ')' : ''}`;
+  if (cheque.usedType === 'other') return cheque.usedText || '';
+  return '';
+}
+
 export function chequeRowHtml(cheque) {
   const who = cheque.counterpartyName || '—';
+  const usedFrag = chequeUsedFragment(cheque);
   return `
   <div class="row-card" onclick="H.goto('/finance/cheques/${cheque.id}')">
     ${avatarHtml(who)}
@@ -112,6 +121,7 @@ export function chequeRowHtml(cheque) {
       <div class="sub">
         <span>Vade ${formatDate(cheque.dueDate)}</span>
         ${cheque.campaignName ? `<span>· ${escapeHtml(cheque.campaignName)}</span>` : ''}
+        ${usedFrag ? `<span>· → ${escapeHtml(usedFrag)}</span>` : ''}
       </div>
     </div>
     <div class="right-col">

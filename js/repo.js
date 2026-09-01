@@ -117,7 +117,26 @@ export async function getChequesForCampaign(campaignId) {
 }
 export async function getChequesForVendor(vendor) {
   const all = await getAllCheques();
-  return all.filter((c) => c.vendor === vendor);
+  // §cheque-redesign: "given to a vendor" is now tracked via usedVendor
+  // (set when a cheque is ciro edilmiş/endorsed to that vendor), not a
+  // static `vendor` field stamped at creation time.
+  return all.filter((c) => c.usedType === 'vendor' && c.usedVendor === vendor);
+}
+
+// A received cheque is always born from exactly one Tahsilat — find it so
+// the cheque detail page can link back to (and edit) that origin record.
+export async function getCollectionByChequeId(chequeId) {
+  const all = await getAllCollections();
+  return all.find((c) => c.chequeId === chequeId) || null;
+}
+
+// Cheques currently sitting unused ("Elde") — the pick-list a Payment's
+// "Çek" type offers instead of entering a fresh cheque (§cheque-redesign:
+// a "verilen çek" is always an existing received cheque being endorsed
+// onward, never freshly self-issued).
+export async function getHeldCheques() {
+  const all = await getAllCheques();
+  return all.filter((c) => !c.usedType);
 }
 
 // -------- TV annual ristorno -------------------------------------------------------

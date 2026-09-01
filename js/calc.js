@@ -165,5 +165,10 @@ export function chequeDisplayStatus(cheque, todayISO) {
   if (CHEQUE_MANUAL_STATUSES.includes(cheque.status)) return cheque.status;
   if (cheque.dueDate === todayISO) return 'Vadesi Gelen';
   if (cheque.dueDate && cheque.dueDate < todayISO) return 'Vadesi Gelen';
-  return cheque.direction === 'received' ? 'Alındı' : 'Verildi';
+  // §cheque-redesign: a cheque's lifecycle is now tracked via `usedType`
+  // (null = still held / "Elde"; 'vendor'|'other' = "Kullanıldı") rather
+  // than the old received/given `direction` split — every cheque is born
+  // "received" from a Tahsilat now, and direction is kept only for any
+  // legacy records.
+  return cheque.usedType ? 'Kullanıldı' : 'Elde';
 }
