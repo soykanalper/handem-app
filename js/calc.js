@@ -161,14 +161,20 @@ export function campaignIsActive(campaign, todayISO) {
 // ---- cheque status helpers ---------------------------------------------------
 export const CHEQUE_MANUAL_STATUSES = ['Ödendi', 'Karşılıksız', 'İptal'];
 
+// Human label for one entry of a cheque's `movements` history.
+export function chequeMovementLabel(m) {
+  if (!m) return '';
+  if (m.toType === 'vendor') return `${m.toVendor || ''}${m.toCampaignName ? ' — ' + m.toCampaignName : ''}`;
+  if (m.toType === 'client') return m.toClientName || '';
+  return m.toText || '';
+}
+
 export function chequeDisplayStatus(cheque, todayISO) {
   if (CHEQUE_MANUAL_STATUSES.includes(cheque.status)) return cheque.status;
   if (cheque.dueDate === todayISO) return 'Vadesi Gelen';
   if (cheque.dueDate && cheque.dueDate < todayISO) return 'Vadesi Gelen';
-  // §cheque-redesign: a cheque's lifecycle is now tracked via `usedType`
-  // (null = still held / "Elde"; 'vendor'|'other' = "Kullanıldı") rather
-  // than the old received/given `direction` split — every cheque is born
-  // "received" from a Tahsilat now, and direction is kept only for any
-  // legacy records.
-  return cheque.usedType ? 'Kullanıldı' : 'Elde';
+  // §cheque-redesign v2: a cheque's lifecycle is a `movements` history —
+  // no movements yet = still held / "Elde"; one or more = "Kullanıldı"
+  // (whoever/wherever the LAST movement points to is the current holder).
+  return cheque.movements && cheque.movements.length ? 'Kullanıldı' : 'Elde';
 }

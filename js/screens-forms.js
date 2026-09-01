@@ -585,12 +585,12 @@ export async function saveCollection(collectionId) {
   const existing = collectionId ? await repo.getCollection(collectionId) : null;
   const existingCheque = existing && existing.chequeId ? await repo.getCheque(existing.chequeId) : null;
 
-  // A cheque that's already been ciro edilmiş/kullanılmış can't silently
-  // lose its cheque just because the payment type changed on this form —
-  // send the user to undo the usage first (§cheque-redesign: keep the
+  // A cheque that already has a movement history can't silently lose its
+  // cheque just because the payment type changed on this form — send the
+  // user to undo the movement(s) first (§cheque-redesign: keep the
   // cheque/payment link consistent instead of leaving a dangling reference).
-  if (existingCheque && existingCheque.usedType && paymentType !== 'Çek') {
-    toast('Bu çek zaten kullanılmış/ciro edilmiş. Önce çek sayfasından "Kullanımı Geri Al" ile geri al.', 'error');
+  if (existingCheque && existingCheque.movements && existingCheque.movements.length && paymentType !== 'Çek') {
+    toast('Bu çeğin hareket geçmişi var. Önce çek sayfasından son hareketi geri al.', 'error');
     return;
   }
 
@@ -618,10 +618,11 @@ export async function saveCollection(collectionId) {
       };
       if (chequeId) {
         await repo.updateCheque(chequeId, chequeData);
-        // Keep an already-endorsed payment's amount in sync with a
-        // corrected cheque amount, so the two never drift apart.
-        if (existingCheque && existingCheque.usedType === 'vendor' && existingCheque.usedPaymentId) {
-          await repo.updatePayment(existingCheque.usedPaymentId, { amount: Number(amount) });
+        // Keep every already-endorsed payment in this cheque's history in
+        // sync with a corrected cheque amount, so none of them drift apart.
+        const vendorMoves = existingCheque && existingCheque.movements ? existingCheque.movements.filter((m) => m.toType === 'vendor' && m.paymentId) : [];
+        for (const m of vendorMoves) {
+          await repo.updatePayment(m.paymentId, { amount: Number(amount) });
         }
       } else {
         const created = await repo.createCheque({ ...chequeData, status: null, note: '' });
@@ -660,12 +661,13 @@ export async function saveCollection(collectionId) {
 export async function deleteCollection(collectionId) {
   const col = await repo.getCollection(collectionId);
   const cheque = col && col.chequeId ? await repo.getCheque(col.chequeId) : null;
+  const movements = cheque ? (cheque.movements || []) : [];
+  const vendorMoves = movements.filter((m) => m.toType === 'vendor' && m.paymentId);
   let msg = 'Bu tahsilatı silmek istiyor musun?';
-  if (cheque && cheque.usedType === 'vendor') msg = `Bu çek "${cheque.usedVendor}" için ciro edilmiş — silersen bağlı ödeme kaydı da silinecek. ` + msg;
-  else if (cheque && cheque.usedType === 'other') msg = `Bu çek "${cheque.usedText}" olarak işaretlenmiş. ` + msg;
+  if (movements.length) msg = `Bu çeğin ${movements.length} hareketlik bir geçmişi var — silersen tüm geçmişi${vendorMoves.length ? ' ve bağlı ödeme kayıtlarını' : ''} da silinecek. ` + msg;
   if (!confirmAction(msg)) return;
-  if (cheque && cheque.usedType === 'vendor' && cheque.usedPaymentId) {
-    await repo.deletePayment(cheque.usedPaymentId);
+  for (const m of vendorMoves) {
+    await repo.deletePayment(m.paymentId);
   }
   await repo.deleteCollection(collectionId);
   if (col && col.chequeId) await repo.deleteCheque(col.chequeId);
@@ -692,13 +694,19 @@ export async function openPaymentForm(ctx = {}) {
   const vendors = await repo.getAllVendorNames();
 
   // Pick-list for "Çek" type: every currently-held (unused) cheque, plus —
-  // when editing a payment that's already using one — that cheque itself,
-  // even though it no longer counts as "held".
+  // when editing a payment that's already using one, or when arriving here
+  // from a specific cheque's own "Ciro Et" action (§cheque-redesign v2: a
+  // cheque with movement history can still be handed to a vendor next — the
+  // chain isn't limited to cheques that have never moved) — that cheque
+  // itself, even though it no longer counts as "held".
   const held = await repo.getHeldCheques();
   let pickList = held;
   if (existing && existing.chequeId) {
     const linked = await repo.getCheque(existing.chequeId);
     if (linked && !pickList.some((c) => c.id === linked.id)) pickList = [linked, ...pickList];
+  } else if (selectedChequeId) {
+    const preset = await repo.getCheque(selectedChequeId);
+    if (preset && !pickList.some((c) => c.id === preset.id)) pickList = [preset, ...pickList];
   }
 
   const html = `
@@ -798,6 +806,7 @@ export async function savePayment(paymentId) {
 
   const existing = paymentId ? await repo.getPayment(paymentId) : null;
   const prevChequeId = existing ? existing.chequeId : null;
+  const prevMovementId = existing ? existing.chequeMovementId : null;
 
   let chequeId = null;
   let amount;
@@ -819,11 +828,21 @@ export async function savePayment(paymentId) {
   try {
     const dueDate = readVadeliDueDate(date);
     await repo.addVendorName(vendor);
+
+    // §cheque-redesign v2: a payment doesn't own a single cheque "state" —
+    // it owns ONE specific entry (by id) in that cheque's movement history,
+    // which may no longer be the last entry (the cheque could have moved on
+    // again since). Track by id, never by array position.
+    let chequeMovementId = (prevChequeId && prevChequeId === chequeId) ? prevMovementId : null;
+    if (prevChequeId && prevMovementId && prevChequeId !== chequeId) {
+      await repo.removeChequeMovementById(prevChequeId, prevMovementId);
+    }
+
     const data = {
       clientId, clientName: client ? client.name : '',
       campaignId, campaignName, vendor,
       date, amount, paymentType, note,
-      chequeId, dueDate,
+      chequeId, chequeMovementId, dueDate,
       photos: formPhotos.slice()
     };
     let saved;
@@ -835,16 +854,14 @@ export async function savePayment(paymentId) {
       toast('Ödeme eklendi', 'success');
     }
 
-    // Keep the cheque's own "kime verildi" state in sync with this payment.
-    if (prevChequeId && prevChequeId !== chequeId) {
-      await repo.updateCheque(prevChequeId, { usedType: null, usedVendor: null, usedCampaignId: null, usedCampaignName: null, usedDate: null, usedPaymentId: null });
-    }
     if (chequeId) {
-      await repo.updateCheque(chequeId, {
-        usedType: 'vendor', usedVendor: vendor,
-        usedCampaignId: campaignId, usedCampaignName: campaignName,
-        usedDate: date, usedPaymentId: saved.id
-      });
+      const movement = { toType: 'vendor', toVendor: vendor, toCampaignId: campaignId, toCampaignName: campaignName, date, paymentId: saved.id };
+      if (chequeMovementId) {
+        await repo.updateChequeMovementById(chequeId, chequeMovementId, movement);
+      } else {
+        const entry = await repo.appendChequeMovement(chequeId, movement);
+        await repo.updatePayment(saved.id, { chequeMovementId: entry.id });
+      }
     }
 
     formPhotos = [];
@@ -859,11 +876,12 @@ export async function deletePayment(paymentId) {
   if (!confirmAction('Bu ödemeyi silmek istiyor musun?')) return;
   const pay = await repo.getPayment(paymentId);
   await repo.deletePayment(paymentId);
-  if (pay && pay.chequeId) {
+  if (pay && pay.chequeId && pay.chequeMovementId) {
     // The cheque itself isn't tied to this payment's existence — it was
     // born from its own tahsilat — so deleting the endorsement just
-    // returns it to "Elde" instead of deleting the cheque.
-    await repo.updateCheque(pay.chequeId, { usedType: null, usedVendor: null, usedCampaignId: null, usedCampaignName: null, usedDate: null, usedPaymentId: null });
+    // removes that one movement from the cheque's history (falling back to
+    // whoever/wherever held it before), never the cheque itself.
+    await repo.removeChequeMovementById(pay.chequeId, pay.chequeMovementId);
   }
   toast('Ödeme silindi', 'success');
   closeSheet();
@@ -1014,75 +1032,144 @@ export function quickNewCheque() {
 }
 
 // ============================================================================
-// ÇEK KULLANIMI (endorse to a vendor / bank / cash-drawer / anywhere else)
+// ÇEK HAREKETLERİ (§cheque-redesign v2) — a cheque's custody trail is a full
+// history, not one "current state": it can be handed to a vendor, taken
+// back, handed to a customer, taken back, handed to the bank, etc., any
+// number of times. Every handoff is its own `movements` entry; only the
+// LAST one is editable/undoable (older history stays a permanent record).
 // ============================================================================
 export function openChequeUseForm(chequeId) {
   const html = `
     <button class="close-x" onclick="H.closeSheet()">✕</button>
-    <h2>Bu Çeki Kullan</h2>
+    <h2>Bu Çeki Kime/Nereye Verdin?</h2>
     <div class="action-sheet-list">
       <button class="action-item" onclick="H.closeSheet();H.openPaymentForm({presetPaymentType:'Çek',presetChequeId:'${chequeId}'})"><span class="ico">${icon('landmark', { size: 18 })}</span>Bir Yükleniciye/Mecraya Öde (Ciro Et)</button>
+      <button class="action-item" onclick="H.openChequeGiveToClientForm('${chequeId}')"><span class="ico">${icon('users', { size: 18 })}</span>Bir Müşteriye Ver</button>
       <button class="action-item" onclick="H.openChequeMarkOtherForm('${chequeId}')"><span class="ico">${icon('wallet', { size: 18 })}</span>Bankaya Yatır / Kasada Tut / Başka Yere Ver</button>
     </div>
   `;
   openSheet(html);
 }
 
-export async function openChequeMarkOtherForm(chequeId) {
-  const cheque = await repo.getCheque(chequeId);
+// -------- "Bir Müşteriye Ver" — light, no ledger effect, just a custody note.
+// `movementId` (optional): editing the LAST movement in place instead of
+// appending a new one.
+export async function openChequeGiveToClientForm(chequeId, movementId) {
+  const [cheque, clients] = await Promise.all([repo.getCheque(chequeId), repo.getClients()]);
+  const editing = movementId ? (cheque.movements || []).find((m) => m.id === movementId) : null;
   const html = `
     <button class="close-x" onclick="H.closeSheet()">✕</button>
-    <h2>Çek Nereye Gitti?</h2>
+    <h2>${editing ? 'Hareketi Düzenle' : 'Müşteriye Ver'}</h2>
     <div class="field">
-      <label>Nereye / Kime *</label>
-      <input id="fChequeOtherText" placeholder="Örn: Banka, Kasa, ya da bir isim" value="${cheque && cheque.usedType === 'other' ? escapeHtml(cheque.usedText || '') : ''}">
-      <div style="display:flex;gap:8px;margin-top:8px;">
-        <button type="button" class="btn small outline" onclick="document.getElementById('fChequeOtherText').value='Banka'">Banka</button>
-        <button type="button" class="btn small outline" onclick="document.getElementById('fChequeOtherText').value='Kasa'">Kasa</button>
-      </div>
+      <label>Hangi Müşteri *</label>
+      <input id="fChequeClientName" list="chequeClientList" placeholder="Listeden seç veya yeni bir isim yaz" value="${editing ? escapeHtml(editing.toClientName || '') : ''}">
+      ${datalist('chequeClientList', clients.map((c) => c.name))}
     </div>
-    <div class="field"><label>Tarih *</label><input id="fChequeOtherDate" type="date" value="${cheque && cheque.usedDate ? cheque.usedDate : todayISO()}"></div>
-    <button class="btn primary" onclick="H.saveChequeMarkOther('${chequeId}')">Kaydet</button>
+    <div class="field"><label>Tarih *</label><input id="fChequeClientDate" type="date" value="${editing ? editing.date : todayISO()}"></div>
+    <button class="btn primary" onclick="H.saveChequeGiveToClient('${chequeId}'${movementId ? `,'${movementId}'` : ''})">Kaydet</button>
   `;
   openSheet(html);
 }
 
-export async function saveChequeMarkOther(chequeId) {
-  const text = document.getElementById('fChequeOtherText').value.trim();
-  const date = document.getElementById('fChequeOtherDate').value;
-  if (!text) { toast('Nereye/kime verdiğini yaz', 'error'); return; }
+export async function saveChequeGiveToClient(chequeId, movementId) {
+  const name = document.getElementById('fChequeClientName').value.trim();
+  const date = document.getElementById('fChequeClientDate').value;
+  if (!name) { toast('Müşteri adını seç veya yaz', 'error'); return; }
   if (!date) { toast('Tarih zorunlu', 'error'); return; }
-  await repo.updateCheque(chequeId, { usedType: 'other', usedText: text, usedDate: date, usedVendor: null, usedCampaignId: null, usedCampaignName: null, usedPaymentId: null });
+  const movement = { toType: 'client', toClientName: name, date };
+  if (movementId) {
+    await repo.updateLastChequeMovement(chequeId, movement);
+  } else {
+    await repo.appendChequeMovement(chequeId, movement);
+  }
   toast('Çek güncellendi', 'success');
   closeSheet();
   refresh();
 }
 
-export async function undoChequeUse(chequeId) {
+// -------- "Bankaya Yatır / Kasada Tut / Başka Yere Ver" — light, free text.
+export async function openChequeMarkOtherForm(chequeId, movementId) {
   const cheque = await repo.getCheque(chequeId);
-  if (!cheque) return;
-  const msg = cheque.usedType === 'vendor'
-    ? `Bu çek "${cheque.usedVendor}" için ciro edilmişti — geri alırsan bağlı ödeme kaydı da silinecek. Emin misin?`
-    : 'Bu çeki tekrar "Elde" durumuna almak istiyor musun?';
-  if (!confirmAction(msg)) return;
-  if (cheque.usedType === 'vendor' && cheque.usedPaymentId) {
-    await repo.deletePayment(cheque.usedPaymentId);
+  const editing = movementId ? (cheque.movements || []).find((m) => m.id === movementId) : null;
+  const html = `
+    <button class="close-x" onclick="H.closeSheet()">✕</button>
+    <h2>${editing ? 'Hareketi Düzenle' : 'Çek Nereye Gitti?'}</h2>
+    <div class="field">
+      <label>Nereye / Kime *</label>
+      <input id="fChequeOtherText" placeholder="Örn: Banka, Kasa, ya da bir isim" value="${editing ? escapeHtml(editing.toText || '') : ''}">
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <button type="button" class="btn small outline" onclick="document.getElementById('fChequeOtherText').value='Banka'">Banka</button>
+        <button type="button" class="btn small outline" onclick="document.getElementById('fChequeOtherText').value='Kasa'">Kasa</button>
+      </div>
+    </div>
+    <div class="field"><label>Tarih *</label><input id="fChequeOtherDate" type="date" value="${editing ? editing.date : todayISO()}"></div>
+    <button class="btn primary" onclick="H.saveChequeMarkOther('${chequeId}'${movementId ? `,'${movementId}'` : ''})">Kaydet</button>
+  `;
+  openSheet(html);
+}
+
+export async function saveChequeMarkOther(chequeId, movementId) {
+  const text = document.getElementById('fChequeOtherText').value.trim();
+  const date = document.getElementById('fChequeOtherDate').value;
+  if (!text) { toast('Nereye/kime verdiğini yaz', 'error'); return; }
+  if (!date) { toast('Tarih zorunlu', 'error'); return; }
+  const movement = { toType: 'other', toText: text, date };
+  if (movementId) {
+    await repo.updateLastChequeMovement(chequeId, movement);
+  } else {
+    await repo.appendChequeMovement(chequeId, movement);
   }
-  await repo.updateCheque(chequeId, { usedType: null, usedVendor: null, usedCampaignId: null, usedCampaignName: null, usedText: null, usedDate: null, usedPaymentId: null });
-  toast('Çek "Elde" durumuna alındı', 'success');
+  toast('Çek güncellendi', 'success');
+  closeSheet();
   refresh();
+}
+
+// Undo (delete) ONLY the most recent movement — the cheque falls back to
+// whatever/whoever held it before that. Older history is never touched.
+export async function undoLastChequeMovement(chequeId) {
+  const cheque = await repo.getCheque(chequeId);
+  if (!cheque || !cheque.movements || !cheque.movements.length) return;
+  const last = cheque.movements[cheque.movements.length - 1];
+  const label = calc.chequeMovementLabel(last);
+  const msg = last.toType === 'vendor'
+    ? `En son "${label}" hareketini geri almak istiyor musun? Bağlı ödeme kaydı da silinecek.`
+    : `En son "${label}" hareketini geri almak istiyor musun?`;
+  if (!confirmAction(msg)) return;
+  if (last.toType === 'vendor' && last.paymentId) {
+    await repo.deletePayment(last.paymentId);
+  }
+  await repo.removeLastChequeMovement(chequeId);
+  toast('Hareket geri alındı', 'success');
+  refresh();
+}
+
+// "Düzenle" on the last movement — routes to whichever form matches its
+// type, pre-filled, so correcting it doesn't mean deleting and starting over.
+export async function editLastChequeMovement(chequeId) {
+  const cheque = await repo.getCheque(chequeId);
+  if (!cheque || !cheque.movements || !cheque.movements.length) return;
+  const last = cheque.movements[cheque.movements.length - 1];
+  if (last.toType === 'vendor') {
+    if (last.paymentId) openPaymentForm({ paymentId: last.paymentId });
+    else toast('Bu hareketin bağlı ödeme kaydı bulunamadı', 'error');
+  } else if (last.toType === 'client') {
+    openChequeGiveToClientForm(chequeId, last.id);
+  } else {
+    openChequeMarkOtherForm(chequeId, last.id);
+  }
 }
 
 export async function deleteChequeRecord(chequeId) {
   const cheque = await repo.getCheque(chequeId);
   const col = cheque ? await repo.getCollectionByChequeId(chequeId) : null;
+  const movements = cheque ? (cheque.movements || []) : [];
+  const vendorMoves = movements.filter((m) => m.toType === 'vendor' && m.paymentId);
   let msg = 'Bu çeki silmek istiyor musun?';
-  if (cheque && cheque.usedType === 'vendor') msg = `Bu çek "${cheque.usedVendor}" için ciro edilmiş — silersen bağlı ödeme kaydı da silinecek. ` + msg;
-  else if (cheque && cheque.usedType === 'other') msg = `Bu çek "${cheque.usedText}" olarak işaretlenmiş. ` + msg;
+  if (movements.length) msg = `Bu çeğin ${movements.length} hareketlik bir geçmişi var — silersen tüm geçmişi ve bağlı ${vendorMoves.length > 0 ? 'ödeme kayıtları' : 'kayıtları'} da silinecek. ` + msg;
   if (col) msg += ' Bu çeki oluşturan tahsilat kaydı da silinecek.';
   if (!confirmAction(msg)) return;
-  if (cheque && cheque.usedType === 'vendor' && cheque.usedPaymentId) {
-    await repo.deletePayment(cheque.usedPaymentId);
+  for (const m of vendorMoves) {
+    await repo.deletePayment(m.paymentId);
   }
   if (col) await repo.deleteCollection(col.id);
   await repo.deleteCheque(chequeId);

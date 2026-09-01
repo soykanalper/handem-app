@@ -3,6 +3,7 @@
 // call these instead of talking to IndexedDB directly.
 // ---------------------------------------------------------------------------
 import { dbGetAll, dbGet, dbGetByIndex, createEntity, updateEntity, softDeleteEntity } from './cloud/db-router.js';
+import { uid } from './util.js';
 
 export const PAYMENT_TYPES = ['Nakit', 'Havale / EFT', 'Çek', 'Vadeli', 'Diğer'];
 
@@ -117,10 +118,11 @@ export async function getChequesForCampaign(campaignId) {
 }
 export async function getChequesForVendor(vendor) {
   const all = await getAllCheques();
-  // §cheque-redesign: "given to a vendor" is now tracked via usedVendor
-  // (set when a cheque is ciro edilmiş/endorsed to that vendor), not a
-  // static `vendor` field stamped at creation time.
-  return all.filter((c) => c.usedType === 'vendor' && c.usedVendor === vendor);
+  // §cheque-redesign v2: a cheque's whole custody trail is a `movements`
+  // array (see chequeMovements.js) — it shows up on a vendor's page if it
+  // was EVER ciro edilmiş to that vendor at any point in its history, not
+  // just right now.
+  return all.filter((c) => (c.movements || []).some((m) => m.toType === 'vendor' && m.toVendor === vendor));
 }
 
 // A received cheque is always born from exactly one Tahsilat — find it so
@@ -136,7 +138,67 @@ export async function getCollectionByChequeId(chequeId) {
 // onward, never freshly self-issued).
 export async function getHeldCheques() {
   const all = await getAllCheques();
-  return all.filter((c) => !c.usedType);
+  return all.filter((c) => !(c.movements && c.movements.length));
+}
+
+// -------- cheque movement history (§cheque-redesign v2) ----------------------
+// A cheque's life isn't a single "current state" — it can be handed off,
+// taken back, and handed off again any number of times (bank → müşteri →
+// bank, ciro → geri al → başka yükleniciye, …). `cheque.movements` is a
+// plain append-ordered array of every handoff so far; the LAST entry is
+// always "where the cheque is right now". Only that last entry can be
+// edited/undone (correcting deep history would make the trail nonsensical);
+// anything older is a permanent, read-only record of what actually happened.
+export async function appendChequeMovement(chequeId, movement) {
+  const cheque = await getCheque(chequeId);
+  if (!cheque) return null;
+  const entry = { id: uid(), ...movement };
+  const movements = [...(cheque.movements || []), entry];
+  await updateCheque(chequeId, { movements });
+  return entry;
+}
+
+export async function updateLastChequeMovement(chequeId, patch) {
+  const cheque = await getCheque(chequeId);
+  if (!cheque || !cheque.movements || !cheque.movements.length) return null;
+  const movements = cheque.movements.slice();
+  const last = { ...movements[movements.length - 1], ...patch };
+  movements[movements.length - 1] = last;
+  await updateCheque(chequeId, { movements });
+  return last;
+}
+
+export async function removeLastChequeMovement(chequeId) {
+  const cheque = await getCheque(chequeId);
+  if (!cheque || !cheque.movements || !cheque.movements.length) return null;
+  const movements = cheque.movements.slice(0, -1);
+  await updateCheque(chequeId, { movements });
+  return true;
+}
+
+// Precise by-id variants — used when a Payment record needs to update/remove
+// the specific movement IT created, which may no longer be the last entry
+// (the cheque could have moved on again since). Safer than "last" for that
+// case: never touches the wrong entry.
+export async function updateChequeMovementById(chequeId, movementId, patch) {
+  const cheque = await getCheque(chequeId);
+  if (!cheque) return null;
+  const movements = (cheque.movements || []).map((m) => (m.id === movementId ? { ...m, ...patch } : m));
+  await updateCheque(chequeId, { movements });
+  return movements.find((m) => m.id === movementId) || null;
+}
+
+export async function removeChequeMovementById(chequeId, movementId) {
+  const cheque = await getCheque(chequeId);
+  if (!cheque) return null;
+  const movements = (cheque.movements || []).filter((m) => m.id !== movementId);
+  await updateCheque(chequeId, { movements });
+  return true;
+}
+
+export function chequeCurrentMovement(cheque) {
+  const movements = cheque && cheque.movements ? cheque.movements : [];
+  return movements.length ? movements[movements.length - 1] : null;
 }
 
 // -------- TV annual ristorno -------------------------------------------------------

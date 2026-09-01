@@ -103,14 +103,18 @@ export function chequeStatusChip(cheque) {
 }
 
 // Short "→ nereye/kime verildi" fragment shown wherever a cheque row is
-// listed, so where a cheque ended up is visible without opening it.
+// listed (the CURRENT holder — last entry of the movement history), so
+// where a cheque ended up is visible without opening it.
 export function chequeUsedFragment(cheque) {
-  if (cheque.usedType === 'vendor') return `${cheque.usedVendor || ''}${cheque.usedCampaignName ? ' (' + cheque.usedCampaignName + ')' : ''}`;
-  if (cheque.usedType === 'other') return cheque.usedText || '';
-  return '';
+  const last = (cheque.movements && cheque.movements.length) ? cheque.movements[cheque.movements.length - 1] : null;
+  return last ? calc.chequeMovementLabel(last) : '';
 }
 
-export function chequeRowHtml(cheque) {
+// `onDelete(cheque)` is optional — pass it to get an inline "✕" delete
+// button on the row itself, matching payRowHtml's pattern, so a cheque can
+// be removed from wherever it's listed (client/campaign/vendor pages, the
+// Çekler list) — not only from its own detail page.
+export function chequeRowHtml(cheque, { onDelete } = {}) {
   const who = cheque.counterpartyName || '—';
   const usedFrag = chequeUsedFragment(cheque);
   return `
@@ -128,6 +132,7 @@ export function chequeRowHtml(cheque) {
       <div class="big">${fmt(cheque.amount)}</div>
       <div class="small">${chequeStatusChip(cheque)}</div>
     </div>
+    ${onDelete ? `<button class="pay-del" onclick="event.stopPropagation();${onDelete(cheque)}">${icon('x', { size: 13 })}</button>` : ''}
   </div>`;
 }
 

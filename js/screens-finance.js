@@ -132,7 +132,7 @@ export async function renderFinanceCustomerDetail({ clientId }) {
   if (clientCheques.length > 0) {
     html += `<div class="section-title">Çekler</div>`;
     const sortedCheques = [...clientCheques].sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || ''));
-    html += sortedCheques.map((c) => chequeRowHtml(c)).join('');
+    html += sortedCheques.map((c) => chequeRowHtml(c, { onDelete: (cc) => `H.deleteChequeRecord('${cc.id}')` })).join('');
   }
 
   setContent(html);
@@ -393,7 +393,7 @@ export async function renderFinanceVendorDetail({ vendor }) {
   if (vendorCheques.length > 0) {
     html += `<div class="section-title">Çekler</div>`;
     const sortedCheques = [...vendorCheques].sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || ''));
-    html += sortedCheques.map((c) => chequeRowHtml(c)).join('');
+    html += sortedCheques.map((c) => chequeRowHtml(c, { onDelete: (cc) => `H.deleteChequeRecord('${cc.id}')` })).join('');
   }
 
   setContent(html);
@@ -431,7 +431,7 @@ export async function renderCheques() {
   ];
   html += `<div class="pills">` + filters.map(([k, label]) => `<button class="pill ${chequeFilter === k ? 'active' : ''}" onclick="H.setChequeFilter('${k}')">${label}</button>`).join('') + `</div>`;
 
-  let list = all.filter((c) => (chequeUseTab === 'held' ? !c.usedType : !!c.usedType));
+  let list = all.filter((c) => (chequeUseTab === 'held' ? !(c.movements && c.movements.length) : !!(c.movements && c.movements.length)));
   list = list.filter((c) => {
     const status = calc.chequeDisplayStatus(c, today);
     if (chequeFilter === 'tumu') return true;
@@ -444,7 +444,7 @@ export async function renderCheques() {
   if (list.length === 0) {
     html += emptyState(icon('receipt', { size: 32 }), 'Çek bulunamadı', 'Seçili filtreye uygun çek yok.');
   } else {
-    html += list.map((c) => chequeRowHtml(c)).join('');
+    html += list.map((c) => chequeRowHtml(c, { onDelete: (cc) => `H.deleteChequeRecord('${cc.id}')` })).join('');
   }
 
   // Compact sync status footer — the old standalone "Diğer" page is gone,
@@ -481,21 +481,23 @@ export async function renderChequeDetail({ chequeId }) {
 
   const status = calc.chequeDisplayStatus(cheque, todayISO());
   const linkedCollection = await repo.getCollectionByChequeId(cheque.id);
+  const movements = cheque.movements || [];
+  const originLine = `${escapeHtml(cheque.counterpartyName || '—')}${cheque.campaignName ? ' — ' + escapeHtml(cheque.campaignName) : ''}`;
 
-  let usedLine;
-  if (cheque.usedType === 'vendor') {
-    usedLine = `${escapeHtml(cheque.usedVendor || '—')}${cheque.usedCampaignName ? ' — ' + escapeHtml(cheque.usedCampaignName) : ''}${cheque.usedDate ? ' (' + formatDate(cheque.usedDate) + ')' : ''}`;
-  } else if (cheque.usedType === 'other') {
-    usedLine = `${escapeHtml(cheque.usedText || '—')}${cheque.usedDate ? ' (' + formatDate(cheque.usedDate) + ')' : ''}`;
-  } else {
-    usedLine = 'Elde, henüz kullanılmadı';
+  // §cheque-redesign v2: the full custody trail, oldest to newest — every
+  // handoff stays visible permanently; only the LAST one can be corrected.
+  let trailHtml = `<div class="detail-row"><span class="k">Alındı</span><span class="v">${originLine}${cheque.chequeDate ? ' (' + formatDate(cheque.chequeDate) + ')' : ''}</span></div>`;
+  movements.forEach((m, i) => {
+    const isLast = i === movements.length - 1;
+    trailHtml += `<div class="detail-row${isLast ? ' total' : ''}"><span class="k">${i + 1}. Verildi${m.date ? ' (' + formatDate(m.date) + ')' : ''}</span><span class="v">${escapeHtml(calc.chequeMovementLabel(m))}</span></div>`;
+  });
+  if (!movements.length) {
+    trailHtml += `<div class="detail-row"><span class="k">Şu an</span><span class="v">Elde, henüz kimseye verilmedi</span></div>`;
   }
 
   let html = `
     <div class="detail-card">
       <div class="detail-row"><span class="k">Durum</span><span class="v">${chequeStatusChip(cheque)}</span></div>
-      <div class="detail-row"><span class="k">Alındı</span><span class="v">${escapeHtml(cheque.counterpartyName || '—')}${cheque.campaignName ? ' — ' + escapeHtml(cheque.campaignName) : ''}</span></div>
-      <div class="detail-row"><span class="k">Verildi</span><span class="v">${usedLine}</span></div>
       <div class="detail-row total"><span class="k">Tutar</span><span class="v">${fmt(cheque.amount)}</span></div>
       <div class="detail-row"><span class="k">Çek Tarihi</span><span class="v">${formatDate(cheque.chequeDate)}</span></div>
       <div class="detail-row"><span class="k">Vade Tarihi</span><span class="v">${formatDate(cheque.dueDate)}</span></div>
@@ -508,10 +510,15 @@ export async function renderChequeDetail({ chequeId }) {
       return photos.length ? `<div class="detail-card"><h3>Fotoğraflar</h3>${photoGalleryHtml(photos)}</div>` : '';
     })()}
     <div class="detail-card">
-      <h3>Çeki Kullan</h3>
-      ${cheque.usedType
-        ? `<p class="hint" style="margin-bottom:10px;">Bu çek şu anda: <b>${usedLine}</b></p><button class="btn small outline" style="width:100%;" onclick="H.undoChequeUse('${cheque.id}')">Kullanımı Geri Al</button>`
-        : `<button class="btn primary" style="width:100%;" onclick="H.openChequeUseForm('${cheque.id}')">${icon('receipt', { size: 15, className: 'icon-inline' })} Bu Çeki Kullan (Ciro Et / Bankaya Yatır / Kasada Tut)</button>`}
+      <h3>Çekin Dolaşımı — Kimden Aldım, Kime Verdim</h3>
+      ${trailHtml}
+      ${movements.length ? `
+      <div style="display:flex;gap:8px;margin-top:10px;">
+        <button class="btn small outline" style="flex:1;" onclick="H.editLastChequeMovement('${cheque.id}')">${icon('pencil', { size: 14, className: 'icon-inline' })} Son Hareketi Düzenle</button>
+        <button class="btn small outline" style="flex:1;" onclick="H.undoLastChequeMovement('${cheque.id}')">${icon('x', { size: 14, className: 'icon-inline' })} Son Hareketi Geri Al</button>
+      </div>` : ''}
+      <button class="btn primary" style="width:100%;margin-top:10px;" onclick="H.openChequeUseForm('${cheque.id}')">${icon('receipt', { size: 15, className: 'icon-inline' })} ${movements.length ? 'Başka Bir Yere / Kişiye Ver' : 'Bu Çeki Kullan / Ver'}</button>
+      <p class="hint" style="margin-top:8px;">Bu çek zaman içinde birden çok kez el değiştirebilir — bankaya yatır, geri al, bir müşteriye ya da yükleniciye ver, yine geri al… her hareket burada kalıcı olarak listelenir.</p>
     </div>
     ${linkedCollection ? `<button class="btn small outline" style="width:100%;margin-bottom:8px;" onclick="H.openCollectionDetail('${linkedCollection.id}')">${icon('banknote', { size: 15, className: 'icon-inline' })} Bağlı Tahsilatı Görüntüle / Düzenle</button>` : ''}
     <div class="detail-card">

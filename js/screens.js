@@ -203,7 +203,7 @@ export async function renderClientDetail({ clientId }) {
   if (clientCheques.length > 0) {
     html += `<div class="section-title">Çekler</div>`;
     const sortedCheques = [...clientCheques].sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || ''));
-    html += sortedCheques.map((c) => chequeRowHtml(c)).join('');
+    html += sortedCheques.map((c) => chequeRowHtml(c, { onDelete: (cc) => `H.deleteChequeRecord('${cc.id}')` })).join('');
   }
 
   html += `<button class="btn danger" onclick="H.deleteCustomer('${client.id}')">Müşteriyi Sil</button>`;
@@ -403,7 +403,7 @@ export async function renderCampaignDetail({ campaignId }) {
   if (campaignCheques.length > 0) {
     html += `<div class="section-title">Çekler</div>`;
     const sortedCheques = [...campaignCheques].sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || ''));
-    html += sortedCheques.map((c) => chequeRowHtml(c)).join('');
+    html += sortedCheques.map((c) => chequeRowHtml(c, { onDelete: (cc) => `H.deleteChequeRecord('${cc.id}')` })).join('');
   }
 
   html += `<button class="btn danger" onclick="H.deleteCampaign('${campaign.id}','${campaign.clientId}','${campaign.productId}')">Kampanyayı Sil</button>`;
