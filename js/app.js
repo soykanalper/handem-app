@@ -158,9 +158,28 @@ function showAlertBanner(cheques) {
 }
 
 // -------- service worker + periodic checks -------------------------------------
+// A new sw.js (bumped CACHE_NAME) installs itself and skips waiting on its
+// own (see sw.js), but the ALREADY-OPEN page keeps running under the OLD
+// controller until it reloads — that gap is why an update could sit
+// installed-but-invisible until the user manually cleared site data. Reload
+// once, automatically, the moment a new service worker actually takes over.
 if ('serviceWorker' in navigator) {
+  let reloadedForUpdate = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (reloadedForUpdate) return;
+    reloadedForUpdate = true;
+    window.location.reload();
+  });
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js').catch(() => { /* offline-first still works without SW */ });
+    navigator.serviceWorker.register('./sw.js').then((reg) => {
+      // Ask the browser to re-check sw.js for changes right away, and again
+      // whenever the app is brought back to the foreground — otherwise a
+      // long-lived tab/PWA instance might not re-check for a long time.
+      reg.update().catch(() => {});
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') reg.update().catch(() => {});
+      });
+    }).catch(() => { /* offline-first still works without SW */ });
   });
   navigator.serviceWorker.addEventListener('message', (event) => {
     if (event.data && event.data.type === 'CHECK_DUE_CHEQUES') checkDueCheques();
