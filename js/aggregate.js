@@ -42,12 +42,16 @@ export async function getClientAggregate(clientId) {
 
 export async function getAllClientsAggregate() {
   const clients = await repo.getClients();
-  const results = [];
-  for (const client of clients) {
+  // §perf: was a sequential for-loop (await one client fully before starting
+  // the next) — in cloud/Firestore mode that serializes every client's whole
+  // query chain behind network latency, one after another. Promise.all runs
+  // them concurrently instead; the returned order still matches `clients`
+  // exactly (Promise.all preserves array order regardless of completion
+  // order), so nothing downstream changes except speed.
+  return Promise.all(clients.map(async (client) => {
     const agg = await getClientAggregate(client.id);
-    results.push({ client, ...agg });
-  }
-  return results;
+    return { client, ...agg };
+  }));
 }
 
 // Whole-business financial overview for the Ana Sayfa (home) screen — sums
@@ -89,11 +93,11 @@ export async function getProductMediaVendorSummary(productId) {
   let activeCount = 0, passiveCount = 0;
   const mediaTypes = new Set();
   const vendors = new Set();
-  for (const c of campaigns) {
+  const mediaLists = await Promise.all(campaigns.map((c) => repo.getMediaForCampaign(c.id)));
+  campaigns.forEach((c, i) => {
     if (calc.campaignIsActive(c, today)) activeCount++; else passiveCount++;
-    const media = await repo.getMediaForCampaign(c.id);
-    media.forEach((m) => { mediaTypes.add(m.mediaType); vendors.add(m.vendor); });
-  }
+    mediaLists[i].forEach((m) => { mediaTypes.add(m.mediaType); vendors.add(m.vendor); });
+  });
   return {
     totalCount: campaigns.length, activeCount, passiveCount,
     mediaTypes: [...mediaTypes].sort((a, b) => a.localeCompare(b, 'tr')),
@@ -120,46 +124,58 @@ export async function getVendorAggregate(vendorName) {
   const allMedia = await repo.getAllMedia();
   const vendorMedia = allMedia.filter((m) => m.vendor === vendorName);
   const campaignIds = [...new Set(vendorMedia.map((m) => m.campaignId))];
-  const campaigns = [];
-  let totalNetPayable = 0, totalPaid = 0, totalPurchase = 0, totalRistorno = 0, totalSales = 0, totalProfit = 0;
   const mediaTypes = new Set();
-  for (const cid of campaignIds) {
-    const campaign = await repo.getCampaign(cid);
+
+  // §perf: each campaign's (campaign, payments) fetch used to happen one
+  // campaign at a time — parallelized here. Sets/array pushes inside a map
+  // callback stay safe because each callback's synchronous work (after its
+  // own await resolves) always finishes in one uninterrupted turn before
+  // another callback's continuation can run — JS never actually interleaves
+  // two callbacks' synchronous statements.
+  const perCampaign = await Promise.all(campaignIds.map(async (cid) => {
+    const [campaign, paymentsRaw] = await Promise.all([
+      repo.getCampaign(cid),
+      repo.getPaymentsForCampaign(cid)
+    ]);
     const mediaInCampaign = vendorMedia.filter((m) => m.campaignId === cid);
     mediaInCampaign.forEach((m) => mediaTypes.add(m.mediaType));
     const netPayable = calc.vendorGroupNetPayable(mediaInCampaign, vendorName);
-    const payments = (await repo.getPaymentsForCampaign(cid)).filter((p) => !p.deleted && p.vendor === vendorName);
+    const payments = paymentsRaw.filter((p) => !p.deleted && p.vendor === vendorName);
     const paid = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
     const { remaining, excess } = calc.remainingAndExcess(netPayable, paid);
     const purchase = mediaInCampaign.reduce((s, m) => s + (Number(m.purchase) || 0), 0);
     const sales = mediaInCampaign.reduce((s, m) => s + (Number(m.sales) || 0), 0);
     const ristorno = mediaInCampaign.reduce((s, m) => s + calc.mediaRistorno(m), 0);
     const profit = mediaInCampaign.reduce((s, m) => s + calc.mediaProfit(m), 0);
-    totalNetPayable += netPayable; totalPaid += paid; totalPurchase += purchase; totalRistorno += ristorno;
-    totalSales += sales; totalProfit += profit;
-    campaigns.push({
+    return {
       campaign, media: mediaInCampaign, netPayable, paid, remaining, excess, payments,
       purchase, sales, ristorno, profit, mediaTypesInCampaign: [...new Set(mediaInCampaign.map((m) => m.mediaType))]
-    });
-  }
-  const totals = calc.remainingAndExcess(totalNetPayable, totalPaid);
+    };
+  }));
+
+  const totalsAgg = perCampaign.reduce((acc, c) => ({
+    totalNetPayable: acc.totalNetPayable + c.netPayable,
+    totalPaid: acc.totalPaid + c.paid,
+    totalPurchase: acc.totalPurchase + c.purchase,
+    totalRistorno: acc.totalRistorno + c.ristorno,
+    totalSales: acc.totalSales + c.sales,
+    totalProfit: acc.totalProfit + c.profit
+  }), { totalNetPayable: 0, totalPaid: 0, totalPurchase: 0, totalRistorno: 0, totalSales: 0, totalProfit: 0 });
+
+  const totals = calc.remainingAndExcess(totalsAgg.totalNetPayable, totalsAgg.totalPaid);
   return {
     vendor: vendorName,
     mediaTypes: [...mediaTypes].sort((a, b) => a.localeCompare(b, 'tr')),
-    campaigns: campaigns.filter((c) => c.campaign && !c.campaign.deleted),
-    totalNetPayable, totalPaid, totalPurchase, totalRistorno, totalSales, totalProfit,
+    campaigns: perCampaign.filter((c) => c.campaign && !c.campaign.deleted),
+    ...totalsAgg,
     totalRemaining: totals.remaining, totalExcess: totals.excess
   };
 }
 
 export async function getAllVendorsAggregate() {
   const names = await repo.getAllVendorNames();
-  const results = [];
-  for (const name of names) {
-    const agg = await getVendorAggregate(name);
-    if (agg.campaigns.length > 0) results.push(agg);
-  }
-  return results;
+  const results = await Promise.all(names.map((name) => getVendorAggregate(name)));
+  return results.filter((agg) => agg.campaigns.length > 0);
 }
 
 export async function getFinanceCustomerTotals() {
@@ -190,41 +206,51 @@ export async function getMediaTypeOverview() {
   const today = todayISO();
   const usedTypes = new Set(allMedia.map((m) => m.mediaType));
   allTypeNames.forEach((t) => usedTypes.add(t));
+  const typesWithMedia = [...usedTypes].filter((mediaType) => allMedia.some((m) => m.mediaType === mediaType));
 
-  const results = [];
-  for (const mediaType of usedTypes) {
+  // §perf: this used to be three nested sequential for-loops (media type ->
+  // campaign -> vendor/campaign pair), each `await`-ing one network round
+  // trip at a time. Parallelized at every level with Promise.all; totals are
+  // summed with reduce() after each level's results are in, instead of
+  // mutating shared counters between awaits.
+  const results = await Promise.all(typesWithMedia.map(async (mediaType) => {
     const mediaOfType = allMedia.filter((m) => m.mediaType === mediaType);
-    if (mediaOfType.length === 0) continue; // skip unused default types entirely
-    const vendorNames = new Set(mediaOfType.map((m) => m.vendor));
-    const campaignIds = new Set(mediaOfType.map((m) => m.campaignId));
-    let activeCampaignCount = 0;
-    for (const cid of campaignIds) {
-      const c = await repo.getCampaign(cid);
-      if (c && !c.deleted && calc.campaignIsActive(c, today)) activeCampaignCount++;
-    }
+    const vendorNames = [...new Set(mediaOfType.map((m) => m.vendor))];
+    const campaignIds = [...new Set(mediaOfType.map((m) => m.campaignId))];
+
+    const campaignRecords = await Promise.all(campaignIds.map((cid) => repo.getCampaign(cid)));
+    const activeCampaignCount = campaignRecords.filter((c) => c && !c.deleted && calc.campaignIsActive(c, today)).length;
+
     const totalPurchase = mediaOfType.reduce((s, m) => s + (Number(m.purchase) || 0), 0);
     const totalSales = mediaOfType.reduce((s, m) => s + (Number(m.sales) || 0), 0);
     const totalRistorno = mediaOfType.reduce((s, m) => s + calc.mediaRistorno(m), 0);
-    let totalPaid = 0, totalNetPayable = 0;
-    for (const v of vendorNames) {
+
+    const vendorTotals = await Promise.all(vendorNames.map(async (v) => {
       const vendorMediaAllCampaigns = mediaOfType.filter((m) => m.vendor === v);
       const byCampaign = new Map();
       vendorMediaAllCampaigns.forEach((m) => {
         if (!byCampaign.has(m.campaignId)) byCampaign.set(m.campaignId, []);
         byCampaign.get(m.campaignId).push(m);
       });
-      for (const [cid, list] of byCampaign) {
-        totalNetPayable += calc.vendorGroupNetPayable(list, v);
+      const perCampaign = await Promise.all([...byCampaign.entries()].map(async ([cid, list]) => {
+        const netPayable = calc.vendorGroupNetPayable(list, v);
         const payments = (await repo.getPaymentsForCampaign(cid)).filter((p) => !p.deleted && p.vendor === v);
-        totalPaid += payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
-      }
-    }
+        const paid = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+        return { netPayable, paid };
+      }));
+      return perCampaign.reduce((acc, x) => ({ netPayable: acc.netPayable + x.netPayable, paid: acc.paid + x.paid }), { netPayable: 0, paid: 0 });
+    }));
+
+    const totalNetPayable = vendorTotals.reduce((s, v) => s + v.netPayable, 0);
+    const totalPaid = vendorTotals.reduce((s, v) => s + v.paid, 0);
     const { remaining } = calc.remainingAndExcess(totalNetPayable, totalPaid);
-    results.push({
-      mediaType, vendorCount: vendorNames.size, activeCampaignCount,
+
+    return {
+      mediaType, vendorCount: vendorNames.length, activeCampaignCount,
       totalPurchase, totalSales, totalRistorno, totalPaid, totalNetPayable, totalRemaining: remaining
-    });
-  }
+    };
+  }));
+
   return results.sort((a, b) => a.mediaType.localeCompare(b.mediaType, 'tr'));
 }
 
