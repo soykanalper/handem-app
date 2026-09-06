@@ -1015,6 +1015,76 @@ export function quickNewCampaignConfirm() {
   openCampaignForm(clientId, productId);
 }
 
+// §nav-redesign: "Mecralar" area's real "add" action — a new mecra/vendor
+// record always belongs to a specific campaign, so this asks Müşteri →
+// Kampanya, then opens the actual mecra form. Reached from the Mecralar
+// page's own "+" (see openMecraQuickAddMenu below).
+export async function quickNewMediaRecord() {
+  const clients = await repo.getClients();
+  if (clients.length === 0) {
+    toast('Önce bir müşteri ekle', 'error');
+    closeSheet();
+    openCustomerForm();
+    return;
+  }
+  const firstClientCampaigns = await repo.getCampaignsForClient(clients[0].id);
+  const html = `
+    <button class="close-x" onclick="H.closeSheet()">✕</button>
+    <h2>Hangi Kampanya İçin?</h2>
+    <div class="field"><label>Müşteri</label><select id="qmClient">${clients.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('')}</select></div>
+    <div class="field"><label>Kampanya</label><select id="qmCampaign">${firstClientCampaigns.map((c) => `<option value="${c.id}">${escapeHtml(c.name || c.productName)}</option>`).join('')}</select></div>
+    <button class="btn primary" onclick="H.quickNewMediaRecordConfirm()">Devam Et</button>
+  `;
+  openSheet(html, (sheet) => {
+    sheet.querySelector('#qmClient').addEventListener('change', async (e) => {
+      const campaigns = await repo.getCampaignsForClient(e.target.value);
+      const sel = sheet.querySelector('#qmCampaign');
+      if (campaigns.length === 0) {
+        sel.innerHTML = '<option value="">Bu müşterinin kampanyası yok</option>';
+      } else {
+        sel.innerHTML = campaigns.map((c) => `<option value="${c.id}">${escapeHtml(c.name || c.productName)}</option>`).join('');
+      }
+    });
+  });
+}
+
+export function quickNewMediaRecordConfirm() {
+  const campaignId = document.getElementById('qmCampaign').value;
+  if (!campaignId) { toast('Bu müşterinin önce bir kampanyası olmalı', 'error'); return; }
+  closeSheet();
+  openMediaForm(campaignId);
+}
+
+// Mecralar / Finans→Mecra page's "+" — was wrongly bound straight to a blank
+// "Ödeme Ekle" (§nav-redesign bug report). Both real actions for this area
+// live here now, picked explicitly instead of guessed.
+export function openMecraQuickAddMenu() {
+  const html = `
+    <button class="close-x" onclick="H.closeSheet()">✕</button>
+    <h2>Mecra İşlemi</h2>
+    <div class="action-sheet-list">
+      <button class="action-item" onclick="H.closeSheet();H.quickNewMediaRecord()"><span class="ico">${icon('monitor', { size: 18 })}</span>Yeni Mecra Kaydı</button>
+      <button class="action-item" onclick="H.closeSheet();H.openPaymentForm({})"><span class="ico">${icon('landmark', { size: 18 })}</span>Ödeme Ekle</button>
+    </div>
+  `;
+  openSheet(html);
+}
+
+// Kampanya Detayı sayfasının FAB'ı — bu kampanyaya (ve müşterisine) önceden
+// dolu Tahsilat/Ödeme seçimi (§nav-redesign). Kampanya sayfasının kendi "+"ı
+// zaten Mecra Ekle'ye bağlı; bu, para hareketi tarafını hızlandırıyor.
+export function openCampaignQuickAddMenu(clientId, campaignId) {
+  const html = `
+    <button class="close-x" onclick="H.closeSheet()">✕</button>
+    <h2>Hızlı İşlem</h2>
+    <div class="action-sheet-list">
+      <button class="action-item" onclick="H.closeSheet();H.openCollectionForm({clientId:'${clientId}',campaignId:'${campaignId}'})"><span class="ico">${icon('arrowDownCircle', { size: 18 })}</span>Tahsilat Ekle</button>
+      <button class="action-item" onclick="H.closeSheet();H.openPaymentForm({clientId:'${clientId}',campaignId:'${campaignId}'})"><span class="ico">${icon('landmark', { size: 18 })}</span>Ödeme Ekle</button>
+    </div>
+  `;
+  openSheet(html);
+}
+
 // §cheque-redesign: a cheque is always born as "alınan" from a tahsilat —
 // there's no more "verilen çek" entry point here, since giving/endorsing a
 // cheque onward always starts from an existing held cheque (see
