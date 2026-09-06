@@ -57,6 +57,19 @@ export function setFabVisible(visible) {
   if (fab) fab.classList.toggle('hide', !visible);
 }
 
+// §nav-redesign: the bottom "+" (FAB) used to always open the same generic
+// 6-option menu no matter what screen you were on. Now each screen can
+// register what its own "+" should actually do (a plain callback, not an
+// HTML string, so it can close over the current clientId/campaignId/vendor
+// with no escaping/embedding needed) — app.js's FAB click handler calls
+// whatever is currently registered here. app.js resets this to null before
+// every route render, so a screen that doesn't set one always falls back to
+// the generic quick-add menu rather than leaking a stale action from
+// whatever screen was open before it.
+let _fabAction = null;
+export function setFabAction(fn) { _fabAction = typeof fn === 'function' ? fn : null; }
+export function getFabAction() { return _fabAction; }
+
 // -------- bottom sheet -------------------------------------------------------
 let sheetStack = [];
 
