@@ -83,6 +83,31 @@ export function openSheet(html, onMount) {
   document.body.style.overflow = 'hidden';
 }
 
+// §double-submit: wrap a "Kaydet"/"Devam Et" button so a second tap before
+// the async save finishes is ignored instead of firing a second save (a
+// cheque/tahsilat/ödeme saved twice from a double-tap or a slow phone).
+// Usage in generated HTML: onclick="H.guard(this, () => H.saveCollection('${id}'))"
+// On success the sheet is normally closed/replaced by the handler anyway;
+// this mainly protects the validation-error path where the sheet stays open
+// and the button must go back to being tappable.
+export function guard(btn, fn) {
+  if (!btn || btn.disabled) return;
+  btn.disabled = true;
+  const reenable = () => { btn.disabled = false; };
+  let result;
+  try {
+    result = fn();
+  } catch (e) {
+    reenable();
+    throw e;
+  }
+  if (result && typeof result.finally === 'function') {
+    result.finally(reenable);
+  } else {
+    reenable();
+  }
+}
+
 export function closeSheet() {
   const overlay = document.getElementById('overlay');
   const sheet = document.getElementById('sheet');
