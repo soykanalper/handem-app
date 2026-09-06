@@ -47,7 +47,7 @@ export async function openCustomerForm(clientId) {
       <p class="hint" style="margin-top:8px;">Yeni kampanya oluştururken bu değer otomatik önerilir, kampanya bazında değiştirilebilir.</p>
     </div>
 
-    <button class="btn primary" onclick="H.saveCustomer('${client ? client.id : ''}')">Kaydet</button>
+    <button class="btn primary" onclick="H.guard(this, () => H.saveCustomer('${client ? client.id : ''}'))">Kaydet</button>
   `;
   openSheet(html, (sheet) => {
     sheet.querySelector('#fFeeType').addEventListener('change', (e) => {
@@ -97,7 +97,7 @@ export async function openProductForm(clientId, productId) {
     <button class="close-x" onclick="H.closeSheet()">✕</button>
     <h2>${product ? 'Ürünü Düzenle' : 'Yeni Ürün'}</h2>
     <div class="field"><label>Ürün Adı *</label><input id="fProductName" placeholder="Örn: Kefirx" value="${product ? escapeHtml(product.name) : ''}"></div>
-    <button class="btn primary" onclick="H.saveProduct('${clientId}','${product ? product.id : ''}')">Kaydet</button>
+    <button class="btn primary" onclick="H.guard(this, () => H.saveProduct('${clientId}','${product ? product.id : ''}'))">Kaydet</button>
   `;
   openSheet(html, (sheet) => sheet.querySelector('#fProductName').focus());
 }
@@ -172,7 +172,7 @@ export async function openCampaignForm(clientId, productId, campaignId) {
       </div>
     </div>
 
-    <button class="btn primary" onclick="H.saveCampaign('${clientId}','${productId}','${campaign ? campaign.id : ''}')">Kaydet</button>
+    <button class="btn primary" onclick="H.guard(this, () => H.saveCampaign('${clientId}','${productId}','${campaign ? campaign.id : ''}'))">Kaydet</button>
   `;
   openSheet(html, (sheet) => {
     sheet.querySelector('#fCampFeeType').addEventListener('change', (e) => {
@@ -281,7 +281,7 @@ export async function openMediaForm(campaignId, mediaId) {
       <div class="pline" id="pVatLine" style="display:none;justify-content:space-between;font-size:11.5px;color:var(--amber-dark);"><span>Satış KDV Dahil</span><b id="pVatIncl">0 ₺</b></div>
     </div>
 
-    <button class="btn primary" onclick="H.saveMedia('${campaignId}','${media ? media.id : ''}')">Kaydet</button>
+    <button class="btn primary" onclick="H.guard(this, () => H.saveMedia('${campaignId}','${media ? media.id : ''}'))">Kaydet</button>
   `;
   openSheet(html, (sheet) => {
     const update = () => {
@@ -544,7 +544,7 @@ export async function openCollectionForm(ctx = {}) {
     ${vadeliFieldsHtml()}
     ${photoSectionHtml()}
     <div class="field">${noteFieldHtml('fColNote', existing ? existing.note : '')}</div>
-    <button class="btn primary" onclick="H.saveCollection('${existing ? existing.id : ''}')">Kaydet</button>
+    <button class="btn primary" onclick="H.guard(this, () => H.saveCollection('${existing ? existing.id : ''}'))">Kaydet</button>
   `;
 
   openSheet(html, (sheet) => {
@@ -742,7 +742,7 @@ export async function openPaymentForm(ctx = {}) {
     ${vadeliFieldsHtml()}
     ${photoSectionHtml()}
     <div class="field">${noteFieldHtml('fPayNote', existing ? existing.note : '')}</div>
-    <button class="btn primary" onclick="H.savePayment('${existing ? existing.id : ''}')">Kaydet</button>
+    <button class="btn primary" onclick="H.guard(this, () => H.savePayment('${existing ? existing.id : ''}'))">Kaydet</button>
   `;
 
   openSheet(html, (sheet) => {
@@ -1136,7 +1136,7 @@ export async function openChequeGiveToClientForm(chequeId, movementId) {
       ${datalist('chequeClientList', clients.map((c) => c.name))}
     </div>
     <div class="field"><label>Tarih *</label><input id="fChequeClientDate" type="date" value="${editing ? editing.date : todayISO()}"></div>
-    <button class="btn primary" onclick="H.saveChequeGiveToClient('${chequeId}'${movementId ? `,'${movementId}'` : ''})">Kaydet</button>
+    <button class="btn primary" onclick="H.guard(this, () => H.saveChequeGiveToClient('${chequeId}'${movementId ? `,'${movementId}'` : ''}))">Kaydet</button>
   `;
   openSheet(html);
 }
@@ -1173,7 +1173,7 @@ export async function openChequeMarkOtherForm(chequeId, movementId) {
       </div>
     </div>
     <div class="field"><label>Tarih *</label><input id="fChequeOtherDate" type="date" value="${editing ? editing.date : todayISO()}"></div>
-    <button class="btn primary" onclick="H.saveChequeMarkOther('${chequeId}'${movementId ? `,'${movementId}'` : ''})">Kaydet</button>
+    <button class="btn primary" onclick="H.guard(this, () => H.saveChequeMarkOther('${chequeId}'${movementId ? `,'${movementId}'` : ''}))">Kaydet</button>
   `;
   openSheet(html);
 }
