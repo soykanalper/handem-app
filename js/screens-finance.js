@@ -570,7 +570,7 @@ export async function openChequeEdit(chequeId) {
       </div>
       <div id="editChequePhotoPreview">${renderEditChequePhotoStrip()}</div>
     </div>
-    <button class="btn primary" onclick="H.saveChequeEdit('${cheque.id}')">Kaydet</button>
+    <button class="btn primary" onclick="H.guard(this, () => H.saveChequeEdit('${cheque.id}'))">Kaydet</button>
   `;
   openSheet(html);
 }
@@ -711,7 +711,7 @@ export async function openTvRistornoForm(vendorName, recordId) {
     <div class="field"><label>Mutabık Kalınan Tutar (Yıl Sonu)</label><input id="fTvConfirmed" type="number" step="0.01" value="${record && record.confirmedAmount != null ? record.confirmedAmount : ''}"></div>
     <div class="field"><label>Tahsilat Tarihi</label><input id="fTvDate" type="date" value="${record && record.collectionDate ? record.collectionDate : ''}"></div>
     <div class="field"><label>Not</label><textarea id="fTvNote">${record && record.note ? escapeHtml(record.note) : ''}</textarea></div>
-    <button class="btn primary" onclick="H.saveTvRistorno('${jsAttr(vendorName)}','${record ? record.id : ''}')">Kaydet</button>
+    <button class="btn primary" onclick="H.guard(this, () => H.saveTvRistorno('${jsAttr(vendorName)}','${record ? record.id : ''}'))">Kaydet</button>
     ${record ? `<button class="btn danger" onclick="H.deleteTvRistornoRecord('${record.id}','${jsAttr(vendorName)}')">Sil</button>` : ''}
   `;
   openSheet(html);
