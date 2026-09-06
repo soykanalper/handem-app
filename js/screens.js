@@ -6,7 +6,7 @@ import * as repo from './repo.js';
 import * as calc from './calc.js';
 import * as agg from './aggregate.js';
 import { fmt, fmtN, formatDate, escapeHtml, jsAttr, todayISO, hashColor, initials, toast } from './util.js';
-import { setTopbar, setContent, setActiveNav, setFabVisible, navigate, goBack } from './ui.js';
+import { setTopbar, setContent, setActiveNav, setFabVisible, setFabAction, navigate, goBack } from './ui.js';
 import { avatarHtml, campaignCardHtml, mediaRowHtml, payRowHtml, chequeRowHtml, emptyState, vatDetailRow, vatBadge } from './components.js';
 import { icon } from './icons.js';
 import { isCloudActive } from './cloud/bootstrap.js';
@@ -79,6 +79,9 @@ export async function renderHome() {
 export async function renderCustomers() {
   setActiveNav('customers');
   setFabVisible(true);
+  // Sayfanın kendi "+" (üstte) yeni müşteri ekler; alttaki FAB bu alanın
+  // para-hareketi kısayolu olarak Tahsilat Ekle açar (§nav-redesign).
+  setFabAction(() => window.H.openCollectionForm({}));
   setTopbar(`
     <div class="brand-row">
       <img src="icons/logo.png" alt="Hande'M" class="brand-logo-img">
@@ -141,6 +144,10 @@ export async function renderClientDetail({ clientId }) {
   const client = await repo.getClient(clientId);
   if (!client) { navigate('/customers'); return; }
 
+  // Üstteki "+" ürün ekler (yapısal); FAB bu müşteriye önceden dolu Tahsilat
+  // Ekle açar — kampanyanın içine girmeden hızlı kayıt (§nav-redesign).
+  setFabAction(() => window.H.openCollectionForm({ clientId: client.id }));
+
   setTopbar(`
     <div class="left">
       <button class="back" onclick="H.goto('/customers')">${icon('chevronLeft')}</button>
@@ -153,9 +160,10 @@ export async function renderClientDetail({ clientId }) {
   `);
   setContent(`<div class="list-loading">Yükleniyor…</div>`);
 
-  const [products, aggData] = await Promise.all([
+  const [products, aggData, collections] = await Promise.all([
     repo.getProductsForClient(clientId),
-    agg.getClientAggregate(clientId)
+    agg.getClientAggregate(clientId),
+    repo.getCollectionsForClient(clientId)
   ]);
   products.sort((a, b) => a.name.localeCompare(b.name, 'tr'));
 
@@ -171,7 +179,12 @@ export async function renderClientDetail({ clientId }) {
     html += `<div class="note-box"><b>Fazla Tahsilat</b>${fmt(s.customerExcess)} bu müşteriden fazladan tahsil edilmiş.</div>`;
   }
 
-  html += `<button class="btn small outline" onclick="H.openCustomerMutabakat('${client.id}')">${icon('share', { size: 15 })} Mütabakat Gönder</button>`;
+  // §nav-redesign: this page now also carries everything that used to live
+  // on the separate Finans → Müşteri Detayı screen (Tahsilat Ekle, per-
+  // campaign financial breakdown, Son Tahsilatlar) — one client, one page,
+  // no matter which tab you arrived from.
+  html += `<button class="btn primary" onclick="H.openCollectionForm({clientId:'${client.id}'})">+ Tahsilat Ekle</button>`;
+  html += `<button class="btn small outline" style="margin-top:8px;" onclick="H.openCustomerMutabakat('${client.id}')">${icon('share', { size: 15 })} Mütabakat Gönder</button>`;
 
   html += `<div class="section-title">Ürünler</div>`;
   if (products.length === 0) {
@@ -198,6 +211,36 @@ export async function renderClientDetail({ clientId }) {
     }).join('');
   }
 
+  // Per-campaign financial breakdown (flat across all products) — was only
+  // on the old Finans → Müşteri Detayı screen; folded in here unchanged.
+  html += `<div class="section-title">Kampanyalar (Finansal)</div>`;
+  if (aggData.campaigns.length === 0) {
+    html += emptyState(icon('megaphone', { size: 32 }), 'Kampanya yok', '');
+  } else {
+    html += aggData.campaigns.map((c) => `
+      <div class="detail-card" style="cursor:pointer;" onclick="H.goto('/campaigns/${c.campaign.id}')">
+        <div class="detail-row"><span class="k" style="font-weight:800;color:var(--ink);">${escapeHtml(c.campaign.name || c.campaign.productName)}</span><span class="v">${c.active ? '<span class="chip green">Aktif</span>' : '<span class="chip neutral">Pasif</span>'}</span></div>
+        <div class="detail-row"><span class="k">Alacak</span><span class="v">${fmt(c.summary.customerReceivable)}</span></div>
+        <div class="detail-row green"><span class="k">Tahsil</span><span class="v">${fmt(c.summary.customerCollected)}</span></div>
+        <div class="detail-row red"><span class="k">Kalan</span><span class="v">${fmt(c.summary.customerRemaining)}</span></div>
+      </div>
+    `).join('');
+  }
+
+  // Full tahsilat transaction history — was only on the old Finans →
+  // Müşteri Detayı screen; folded in here unchanged.
+  html += `<div class="section-title">Son Tahsilatlar</div>`;
+  if (collections.length === 0) {
+    html += emptyState(icon('banknote', { size: 32 }), 'Henüz tahsilat yok', '');
+  } else {
+    const sortedCollections = [...collections].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    html += sortedCollections.map((c) => payRowHtml(c, {
+      onClick: (cc) => `H.openCollectionDetail('${cc.id}')`,
+      showTarget: (cc) => cc.campaignName,
+      onDelete: (cc) => `H.deleteCollection('${cc.id}')`
+    })).join('');
+  }
+
   // §73: cheques tied to this customer, cross-visible from the Customer page.
   const clientCheques = await repo.getChequesForClient(client.id);
   if (clientCheques.length > 0) {
@@ -221,6 +264,10 @@ export async function renderProductDetail({ clientId, productId }) {
   setFabVisible(true);
   const [client, product] = await Promise.all([repo.getClient(clientId), repo.getProduct(productId)]);
   if (!product) { navigate('/customers/' + clientId); return; }
+
+  // Üstteki "+" kampanya ekler; FAB bu ürünün müşterisine önceden dolu
+  // Tahsilat Ekle açar (§nav-redesign).
+  setFabAction(() => window.H.openCollectionForm({ clientId }));
 
   setTopbar(`
     <div class="left">
@@ -296,12 +343,17 @@ export function setProductFilter(filter, clientId, productId) {
 // ============================================================================
 export async function renderCampaignDetail({ campaignId }) {
   setActiveNav('customers');
-  setFabVisible(false);
   const full = await agg.getCampaignFull(campaignId);
   if (!full) { navigate('/customers'); return; }
   const { campaign, media, summary, payments } = full;
   const displayName = campaign.name || campaign.productName || 'Kampanya';
   const active = calc.campaignIsActive(campaign, todayISO());
+
+  // Paranın en çok hareket ettiği sayfa — FAB burada açık ve bu kampanyaya
+  // önceden dolu Tahsilat/Ödeme seçimi sunuyor (§nav-redesign). Üstteki "+"
+  // zaten Mecra Ekle'ye bağlı, o değişmiyor.
+  setFabVisible(true);
+  setFabAction(() => window.H.openCampaignQuickAddMenu(campaign.clientId, campaign.id));
 
   setTopbar(`
     <div class="left">
@@ -416,10 +468,15 @@ export async function renderCampaignDetail({ campaignId }) {
 // ============================================================================
 export async function renderMediaDetail({ mediaId }) {
   setActiveNav('customers');
-  setFabVisible(false);
   const media = await repo.getMediaRecord(mediaId);
   if (!media) { navigate('/customers'); return; }
   const campaign = await repo.getCampaign(media.campaignId);
+
+  // Her şey zaten belli (müşteri+kampanya+yüklenici) — FAB burada tek adımda
+  // tam dolu bir Ödeme Ekle açar, sayfadaki mevcut butonla aynı hedefe gider
+  // (§nav-redesign).
+  setFabVisible(true);
+  setFabAction(() => window.H.openPaymentForm({ clientId: campaign ? campaign.clientId : '', campaignId: media.campaignId, vendor: media.vendor }));
   const allMediaInCampaign = await repo.getMediaForCampaign(media.campaignId);
   const payments = (await repo.getPaymentsForCampaign(media.campaignId)).filter((p) => p.vendor === media.vendor);
 
