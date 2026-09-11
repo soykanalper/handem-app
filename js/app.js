@@ -28,7 +28,10 @@ window.H = Object.assign(
     setProductFilter: screens.setProductFilter,
     viewPhoto: ui.openLightbox,
     openAccountMenu: cloudBootstrap.openAccountMenu,
-    cloudLogOut: cloudBootstrap.cloudLogOut
+    cloudLogOut: cloudBootstrap.cloudLogOut,
+    openTeamSettings: cloudBootstrap.openTeamSettings,
+    addTeamAdmin: cloudBootstrap.addTeamAdmin,
+    removeTeamAdmin: cloudBootstrap.removeTeamAdmin
   }
 );
 
