@@ -11,6 +11,7 @@ import { openSheet, closeSheet, navigate, refresh, openLightbox, noteFieldHtml }
 import { pickPhoto } from './photo.js';
 import { chequeStatusChip, photoStripHtml, photoGalleryHtml } from './components.js';
 import { icon } from './icons.js';
+import { isAdmin } from './cloud/team.js';
 
 const MAX_PHOTOS = 3;
 let formPhotos = []; // transient dataURL[] held while a tahsilat/ödeme sub-form is open
@@ -32,6 +33,7 @@ export async function openCustomerForm(clientId) {
     <h2>${client ? 'Müşteriyi Düzenle' : 'Yeni Müşteri'}</h2>
     <div class="field"><label>Müşteri Adı *</label><input id="fClientName" placeholder="Örn: Altınkılıç" value="${client ? escapeHtml(client.name) : ''}"></div>
 
+    ${isAdmin() ? `
     <div class="fee-box">
       <div class="field" style="margin-bottom:8px;"><label>Varsayılan Ajans Ücreti</label>
         <select id="fFeeType">
@@ -45,17 +47,20 @@ export async function openCustomerForm(clientId) {
         <input id="fFeeValue" type="number" step="0.01" value="${feeValue}">
       </div>
       <p class="hint" style="margin-top:8px;">Yeni kampanya oluştururken bu değer otomatik önerilir, kampanya bazında değiştirilebilir.</p>
-    </div>
+    </div>` : ''}
 
     <button class="btn primary" onclick="H.guard(this, () => H.saveCustomer('${client ? client.id : ''}'))">Kaydet</button>
   `;
   openSheet(html, (sheet) => {
-    sheet.querySelector('#fFeeType').addEventListener('change', (e) => {
-      const wrap = sheet.querySelector('#fFeeValueWrap');
-      const label = sheet.querySelector('#fFeeValueLabel');
-      wrap.style.display = e.target.value === 'none' ? 'none' : 'block';
-      label.textContent = e.target.value === 'fixed' ? 'Tutar (₺)' : 'Yüzde (%)';
-    });
+    const feeTypeEl = sheet.querySelector('#fFeeType'); // absent for non-admin — see §roles above
+    if (feeTypeEl) {
+      feeTypeEl.addEventListener('change', (e) => {
+        const wrap = sheet.querySelector('#fFeeValueWrap');
+        const label = sheet.querySelector('#fFeeValueLabel');
+        wrap.style.display = e.target.value === 'none' ? 'none' : 'block';
+        label.textContent = e.target.value === 'fixed' ? 'Tutar (₺)' : 'Yüzde (%)';
+      });
+    }
     sheet.querySelector('#fClientName').focus();
   });
 }
@@ -63,9 +68,18 @@ export async function openCustomerForm(clientId) {
 export async function saveCustomer(clientId) {
   const name = document.getElementById('fClientName').value.trim();
   if (!name) { toast('Müşteri adı zorunlu', 'error'); return; }
-  const feeType = document.getElementById('fFeeType').value;
-  const feeValue = Number(document.getElementById('fFeeValue').value) || 0;
-  const data = { name, agencyFeeType: feeType, agencyFeeValue: feeType === 'none' ? 0 : feeValue };
+  // §roles: ajans ücreti alanı personelden gizli (bkz. openCustomerForm) —
+  // form alanları yoksa mevcut değeri koru, "none/0"a düşürme.
+  const feeTypeEl = document.getElementById('fFeeType');
+  const feeValueEl = document.getElementById('fFeeValue');
+  let data;
+  if (feeTypeEl) {
+    const feeType = feeTypeEl.value;
+    const feeValue = Number(feeValueEl.value) || 0;
+    data = { name, agencyFeeType: feeType, agencyFeeValue: feeType === 'none' ? 0 : feeValue };
+  } else {
+    data = { name };
+  }
   try {
     if (clientId) {
       await repo.updateClient(clientId, data);
@@ -150,6 +164,7 @@ export async function openCampaignForm(clientId, productId, campaignId) {
     </div>
     <div class="field">${noteFieldHtml('fCampNote', campaign && campaign.note ? campaign.note : '')}</div>
 
+    ${isAdmin() ? `
     <div class="fee-box">
       <div class="field" style="margin-bottom:8px;"><label>Ajans Ücreti</label>
         <select id="fCampFeeType">
@@ -170,17 +185,20 @@ export async function openCampaignForm(clientId, productId, campaignId) {
           </select>
         </div>
       </div>
-    </div>
+    </div>` : ''}
 
     <button class="btn primary" onclick="H.guard(this, () => H.saveCampaign('${clientId}','${productId}','${campaign ? campaign.id : ''}'))">Kaydet</button>
   `;
   openSheet(html, (sheet) => {
-    sheet.querySelector('#fCampFeeType').addEventListener('change', (e) => {
-      const wrap = sheet.querySelector('#fCampFeeValueWrap');
-      const label = sheet.querySelector('#fCampFeeValueLabel');
-      wrap.style.display = e.target.value === 'none' ? 'none' : 'grid';
-      label.textContent = e.target.value === 'fixed' ? 'Tutar (₺)' : 'Yüzde (%)';
-    });
+    const feeTypeEl = sheet.querySelector('#fCampFeeType'); // absent for non-admin — see §roles above
+    if (feeTypeEl) {
+      feeTypeEl.addEventListener('change', (e) => {
+        const wrap = sheet.querySelector('#fCampFeeValueWrap');
+        const label = sheet.querySelector('#fCampFeeValueLabel');
+        wrap.style.display = e.target.value === 'none' ? 'none' : 'grid';
+        label.textContent = e.target.value === 'fixed' ? 'Tutar (₺)' : 'Yüzde (%)';
+      });
+    }
   });
 }
 
@@ -189,10 +207,6 @@ export async function saveCampaign(clientId, productId, campaignId) {
   const startDate = document.getElementById('fCampStart').value;
   const endDate = document.getElementById('fCampEnd').value;
   const note = document.getElementById('fCampNote').value.trim();
-  const feeType = document.getElementById('fCampFeeType').value;
-  const feeValue = Number(document.getElementById('fCampFeeValue').value) || 0;
-  const feeVatRaw = document.getElementById('fCampFeeVat').value;
-  const feeVatRate = feeVatRaw === '' ? null : Number(feeVatRaw);
 
   if (!startDate || !endDate) { toast('Başlangıç ve bitiş tarihi zorunlu', 'error'); return; }
   if (endDate < startDate) { toast('Bitiş tarihi başlangıçtan önce olamaz', 'error'); return; }
@@ -203,10 +217,20 @@ export async function saveCampaign(clientId, productId, campaignId) {
     clientName: client ? client.name : '',
     productName: product ? product.name : '',
     name: name || '',
-    startDate, endDate, note,
-    agencyFeeType: feeType, agencyFeeValue: feeType === 'none' ? 0 : feeValue,
-    agencyFeeVatRate: feeType === 'none' ? null : feeVatRate
+    startDate, endDate, note
   };
+  // §roles: ajans ücreti alanı personelden gizli (bkz. openCampaignForm) —
+  // form alanları yoksa mevcut değeri koru, "none/0"a düşürme.
+  const feeTypeEl = document.getElementById('fCampFeeType');
+  if (feeTypeEl) {
+    const feeType = feeTypeEl.value;
+    const feeValue = Number(document.getElementById('fCampFeeValue').value) || 0;
+    const feeVatRaw = document.getElementById('fCampFeeVat').value;
+    const feeVatRate = feeVatRaw === '' ? null : Number(feeVatRaw);
+    data.agencyFeeType = feeType;
+    data.agencyFeeValue = feeType === 'none' ? 0 : feeValue;
+    data.agencyFeeVatRate = feeType === 'none' ? null : feeVatRate;
+  }
   try {
     if (campaignId) {
       await repo.updateCampaign(campaignId, data);
@@ -277,7 +301,7 @@ export async function openMediaForm(campaignId, mediaId) {
     <div class="preview-box" id="mediaPreview" style="background:var(--primary-bg);border-radius:12px;padding:10px 12px;margin:6px 0 12px;display:flex;flex-direction:column;gap:5px;">
       <div class="pline" style="display:flex;justify-content:space-between;font-size:11.5px;"><span>Ristorno Tutarı</span><b id="pRistorno">0 ₺</b></div>
       <div class="pline" style="display:flex;justify-content:space-between;font-size:11.5px;"><span>Net Ödenecek</span><b id="pNet">0 ₺</b></div>
-      <div class="pline" style="display:flex;justify-content:space-between;font-size:11.5px;"><span>Kâr (KDV Hariç)</span><b id="pProfit">0 ₺</b></div>
+      ${isAdmin() ? `<div class="pline" style="display:flex;justify-content:space-between;font-size:11.5px;"><span>Kâr (KDV Hariç)</span><b id="pProfit">0 ₺</b></div>` : ''}
       <div class="pline" id="pVatLine" style="display:none;justify-content:space-between;font-size:11.5px;color:var(--amber-dark);"><span>Satış KDV Dahil</span><b id="pVatIncl">0 ₺</b></div>
     </div>
 
@@ -295,7 +319,8 @@ export async function openMediaForm(campaignId, mediaId) {
       const profit = sales - purchase + ristorno;
       sheet.querySelector('#pRistorno').textContent = fmt(ristorno);
       sheet.querySelector('#pNet').textContent = fmt(net);
-      sheet.querySelector('#pProfit').textContent = fmt(profit);
+      const profitEl = sheet.querySelector('#pProfit'); // absent for non-admin — see §roles above
+      if (profitEl) profitEl.textContent = fmt(profit);
       const vatLine = sheet.querySelector('#pVatLine');
       if (vatRate) {
         vatLine.style.display = 'flex';
