@@ -9,15 +9,19 @@ import { fmt, fmtN, formatDate, escapeHtml, jsAttr, todayISO, toast, confirmActi
 import { setTopbar, setContent, setActiveNav, setFabVisible, setFabAction, navigate, refresh, openSheet, closeSheet, openLightbox } from './ui.js';
 import { avatarHtml, payRowHtml, chequeRowHtml, chequeStatusChip, chequeUsedFragment, emptyState, photoStripHtml, photoGalleryHtml } from './components.js';
 import { icon } from './icons.js';
+import { isAdmin } from './cloud/team.js';
 
-// §nav-redesign: "Mecra" used to be a third tab here, showing the exact
-// same screen as the standalone "Mecralar" bottom-nav tab (vendorHierarchyBody)
-// — two different paths to one identical destination. Dropped down to one
-// path (bottom nav → Mecralar); Finans now only covers the customer/
-// receivable side plus cheques.
+// §finans-mecra: "Mecra" is back as a third tab here — this time NOT the
+// same screen as the standalone "Mecralar" bottom-nav tab. Mecralar (bottom
+// nav) is for MANAGING media buys (mecra türü/yüklenici ekleme, TV yıllık
+// ristorno) — a record-keeping tool. Finans → Mecra is a pure financial
+// status view, one flat vendor list sorted by kalan (mirrors Finans →
+// Müşteri exactly), for "kime ne kadar ödedim / kalan ne kadar" at a
+// glance, no mecra-türü grouping in the way.
 function tabStrip(active) {
   return `<div class="tab-strip">
     <button class="${active === 'customer' ? 'active' : ''}" onclick="H.goto('/finance/customer')">Müşteri</button>
+    <button class="${active === 'mecra' ? 'active' : ''}" onclick="H.goto('/finance/vendor')">Mecra</button>
     <button class="${active === 'cheques' ? 'active' : ''}" onclick="H.goto('/finance/cheques')">Çekler</button>
   </div>`;
 }
@@ -98,10 +102,10 @@ function mediaTypeCardHtml(t) {
         </div>
         <div class="chev">${icon('chevronRight', { size: 16 })}</div>
       </div>
-      <div class="mtype-grid">
-        <div class="fi"><span class="label">Alış</span><span class="value">${fmtN(t.totalPurchase)}</span></div>
+      <div class="mtype-grid"${isAdmin() ? '' : ' style="grid-template-columns:1fr;"'}>
+        ${isAdmin() ? `<div class="fi"><span class="label">Alış</span><span class="value">${fmtN(t.totalPurchase)}</span></div>` : ''}
         <div class="fi"><span class="label">Satış</span><span class="value">${fmtN(t.totalSales)}</span></div>
-        <div class="fi amber"><span class="label">Ristorno</span><span class="value">${fmtN(t.totalRistorno)}</span></div>
+        ${isAdmin() ? `<div class="fi amber"><span class="label">Ristorno</span><span class="value">${fmtN(t.totalRistorno)}</span></div>` : ''}
       </div>
       <div class="mtype-grid" style="margin-top:6px;">
         <div class="fi"><span class="label">Borç</span><span class="value">${fmtN(t.totalNetPayable)}</span></div>
@@ -143,13 +147,16 @@ async function vendorHierarchyBody() {
 
   // TV Yıllık Ristorno lives here — a Mecra tool, reached from Mecralar
   // (formerly nested under the now-removed "Diğer" section, §10-11).
-  html += `
-    <div class="row-card" onclick="H.goto('/mecra/tv')">
-      <div class="avatar" style="background:#F59E0B">${icon('calendar', { size: 18 })}</div>
-      <div class="info"><div class="name">TV Yıllık Ristorno</div><div class="sub">Yıllık TV ristorno hesaplama ve mutabakat</div></div>
-      <div class="chev">${icon('chevronRight', { size: 16 })}</div>
-    </div>
-  `;
+  // §roles: bu tamamen ristorno/maliyet üzerine bir ekran, personelden gizli.
+  if (isAdmin()) {
+    html += `
+      <div class="row-card" onclick="H.goto('/mecra/tv')">
+        <div class="avatar" style="background:#F59E0B">${icon('calendar', { size: 18 })}</div>
+        <div class="info"><div class="name">TV Yıllık Ristorno</div><div class="sub">Yıllık TV ristorno hesaplama ve mutabakat</div></div>
+        <div class="chev">${icon('chevronRight', { size: 16 })}</div>
+      </div>
+    `;
+  }
 
   html += `<div class="section-title">Ödeme Listesi</div>`;
   const sorted = [...allPayments].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
@@ -189,11 +196,48 @@ export async function renderMecraHome() {
   setContent(await vendorHierarchyBody());
 }
 
-// §nav-redesign: this route used to render the same vendor hierarchy as the
-// standalone "Mecralar" bottom-nav tab — kept alive as a redirect only, so
-// old links/bookmarks still land somewhere correct.
+// §finans-mecra: Finans → Mecra — flat yüklenici listesi, kalan'a göre
+// sıralı, Finans → Müşteri ile birebir aynı yapı. Yükleniciyi yönetmek
+// (mecra türü/yüklenici ekleme) için hâlâ "Mecralar" (alt menü) var; burası
+// sadece "kime ne kadar ödedim / kalan ne kadar" diye hızlı bakmak için.
 export async function renderFinanceVendorList() {
-  navigate('/mecra');
+  setActiveNav('finance');
+  setFabVisible(true);
+  setFabAction(() => window.H.openPaymentForm({}));
+  financeTopbar('Mecra');
+  setContent(`<div class="list-loading">Yükleniyor…</div>`);
+
+  const { vendors, totals } = await agg.getFinanceVendorTotals();
+  vendors.sort((a, b) => b.totalRemaining - a.totalRemaining);
+
+  let html = tabStrip('mecra');
+  html += `
+    <div class="summary-strip">
+      <div class="si"><div class="label">Toplam Borç</div><div class="value">${fmtN(totals.debt)}</div></div>
+      <div class="si green"><div class="label">Ödenen</div><div class="value">${fmtN(totals.paid)}</div></div>
+      <div class="si red"><div class="label">Kalan</div><div class="value">${fmtN(totals.remaining)}</div></div>
+    </div>
+  `;
+
+  if (vendors.length === 0) {
+    html += emptyState(icon('landmark', { size: 32 }), 'Henüz finansal kayıt yok', 'Bir kampanyaya mecra/yüklenici eklediğinde burada görünecek.');
+  } else {
+    html += vendors.map((v) => `
+      <div class="row-card" onclick="H.goto('/finance/vendor/${encodeURIComponent(v.vendor)}')">
+        ${avatarHtml(v.vendor)}
+        <div class="info">
+          <div class="name">${escapeHtml(v.vendor)}</div>
+          <div class="sub">Borç ${fmtN(v.totalNetPayable)} · Ödenen ${fmtN(v.totalPaid)}${isAdmin() ? ` · Kâr ${fmtN(v.totalProfit)}` : ''}</div>
+        </div>
+        <div class="right-col">
+          <div class="big">${fmt(v.totalRemaining)}</div>
+          <div class="small">kalan</div>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  setContent(html);
 }
 
 // §60: vendors used for one media type, e.g. all TV kanalları — one level
@@ -242,7 +286,7 @@ export async function renderMediaTypeDetail({ mediaType }) {
         ${avatarHtml(v.vendor)}
         <div class="info">
           <div class="name">${escapeHtml(v.vendor)}</div>
-          <div class="sub">Borç ${fmtN(v.totalNetPayable)} · Ödenen ${fmtN(v.totalPaid)} · Kâr ${fmtN(v.totalProfit)}</div>
+          <div class="sub">Borç ${fmtN(v.totalNetPayable)} · Ödenen ${fmtN(v.totalPaid)}${isAdmin() ? ` · Kâr ${fmtN(v.totalProfit)}` : ''}</div>
         </div>
         <div class="right-col">
           <div class="big">${fmt(v.totalRemaining)}</div>
@@ -279,7 +323,7 @@ export async function renderFinanceVendorDetail({ vendor }) {
   }
   // §61: vendor detail must show purchase/ristorno/sales totals too, not just
   // net payable/paid/remaining/profit.
-  html += `
+  html += isAdmin() ? `
     <div class="summary-strip">
       <div class="si"><div class="label">Alış</div><div class="value">${fmtN(data.totalPurchase)}</div></div>
       <div class="si"><div class="label">Satış</div><div class="value">${fmtN(data.totalSales)}</div></div>
@@ -290,6 +334,13 @@ export async function renderFinanceVendorDetail({ vendor }) {
       <div class="si green"><div class="label">Ödenen</div><div class="value">${fmtN(data.totalPaid)}</div></div>
       <div class="si red"><div class="label">Kalan</div><div class="value">${fmtN(data.totalRemaining)}</div></div>
       <div class="si green"><div class="label">Kâr</div><div class="value">${fmtN(data.totalProfit)}</div></div>
+    </div>
+  ` : `
+    <div class="summary-strip cols4">
+      <div class="si"><div class="label">Satış</div><div class="value">${fmtN(data.totalSales)}</div></div>
+      <div class="si"><div class="label">Net Borç</div><div class="value">${fmtN(data.totalNetPayable)}</div></div>
+      <div class="si green"><div class="label">Ödenen</div><div class="value">${fmtN(data.totalPaid)}</div></div>
+      <div class="si red"><div class="label">Kalan</div><div class="value">${fmtN(data.totalRemaining)}</div></div>
     </div>
   `;
   if (data.totalExcess > 0) html += `<div class="note-box"><b>Fazla Ödeme</b>${fmt(data.totalExcess)}</div>`;
@@ -310,13 +361,13 @@ export async function renderFinanceVendorDetail({ vendor }) {
         <div class="detail-row"><span class="k">Ürün</span><span class="v">${escapeHtml(c.campaign.productName || '—')}</span></div>
         <div class="detail-row"><span class="k">Mecra</span><span class="v">${escapeHtml((c.mediaTypesInCampaign || []).join(', '))}</span></div>
         <div class="detail-divider"></div>
-        <div class="detail-row"><span class="k">Alış</span><span class="v">${fmt(c.purchase)}</span></div>
+        ${isAdmin() ? `<div class="detail-row"><span class="k">Alış</span><span class="v">${fmt(c.purchase)}</span></div>` : ''}
         <div class="detail-row"><span class="k">Satış</span><span class="v">${fmt(c.sales)}</span></div>
-        <div class="detail-row amber"><span class="k">Ristorno</span><span class="v">${fmt(c.ristorno)}</span></div>
+        ${isAdmin() ? `<div class="detail-row amber"><span class="k">Ristorno</span><span class="v">${fmt(c.ristorno)}</span></div>` : ''}
         <div class="detail-row"><span class="k">Net Ödenecek</span><span class="v">${fmt(c.netPayable)}</span></div>
         <div class="detail-row green"><span class="k">Ödenen</span><span class="v">${fmt(c.paid)}</span></div>
         <div class="detail-row red"><span class="k">Kalan</span><span class="v">${fmt(c.remaining)}</span></div>
-        <div class="detail-row green"><span class="k">Kâr</span><span class="v">${fmt(c.profit)}</span></div>
+        ${isAdmin() ? `<div class="detail-row green"><span class="k">Kâr</span><span class="v">${fmt(c.profit)}</span></div>` : ''}
       </div>
     `).join('');
   }
@@ -628,6 +679,9 @@ export async function saveChequeEdit(chequeId) {
 export async function renderTvVendorList() {
   setActiveNav('mecra');
   setFabVisible(false);
+  // §roles: giriş noktası zaten personelden gizli — doğrudan linke/geçmişe
+  // basılırsa diye burada da ikinci bir kapı.
+  if (!isAdmin()) { toast('Bu bölüm sadece admin için', 'error'); navigate('/mecra'); return; }
   setTopbar(`<div class="left"><button class="back" onclick="H.goto('/mecra')">${icon('chevronLeft')}</button><div><h1>TV Yıllık Ristorno</h1></div></div>`);
   setContent(`<div class="list-loading">Yükleniyor…</div>`);
 
@@ -656,6 +710,7 @@ export async function renderTvVendorList() {
 export async function renderTvVendorYears({ vendor }) {
   setActiveNav('mecra');
   setFabVisible(false);
+  if (!isAdmin()) { toast('Bu bölüm sadece admin için', 'error'); navigate('/mecra'); return; }
   const vendorName = decodeURIComponent(vendor);
   setTopbar(`
     <div class="left"><button class="back" onclick="H.goto('/mecra/tv')">${icon('chevronLeft')}</button><div><h1>${escapeHtml(vendorName)}</h1><div class="sub">TV Yıllık Ristorno</div></div></div>
@@ -682,6 +737,7 @@ export async function renderTvVendorYears({ vendor }) {
 }
 
 export async function openTvRistornoForm(vendorName, recordId) {
+  if (!isAdmin()) { toast('Bu bölüm sadece admin için', 'error'); return; }
   const record = recordId ? await repo.getTvRistorno(recordId) : null;
   const currentYear = new Date().getFullYear();
 
