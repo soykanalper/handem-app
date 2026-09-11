@@ -1,4 +1,4 @@
-const CACHE_NAME = 'handem-v16';
+const CACHE_NAME = 'handem-v17';
 const APP_SHELL = [
   './',
   './index.html',
@@ -26,6 +26,7 @@ const APP_SHELL = [
   './js/cloud/db-router.js',
   './js/cloud/migrate.js',
   './js/cloud/bootstrap.js',
+  './js/cloud/team.js',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/apple-touch-icon.png',
