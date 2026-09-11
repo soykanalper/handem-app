@@ -18,8 +18,9 @@ import { isCloudConfigured } from '../firebase-config.js';
 import { setDbMode, getDbMode } from './db-router.js';
 import { watchAuthState, logIn, logOut, authErrorMessage } from './auth.js';
 import { countLocalRecords, cloudWorkspaceIsEmpty, migrateLocalToCloud } from './migrate.js';
+import { isAdmin, setLocalModeAdmin, loadAdminStatus, getTeamAdmins, setTeamAdmins } from './team.js';
 import { openSheet, closeSheet } from '../ui.js';
-import { toast, confirmAction, escapeHtml } from '../util.js';
+import { toast, confirmAction, escapeHtml, jsAttr } from '../util.js';
 import { icon } from '../icons.js';
 
 export function isCloudActive() {
@@ -126,6 +127,7 @@ const readyPromise = new Promise((resolve) => { readyResolve = resolve; });
 
 export async function initCloudAndAuth() {
   if (!isCloudConfigured()) {
+    setLocalModeAdmin(); // local/offline is single-user — always full access
     return; // stays in local-only IndexedDB mode, exactly as before
   }
   let first = true;
@@ -133,6 +135,9 @@ export async function initCloudAndAuth() {
     await watchAuthState(async (user) => {
       if (user) {
         setDbMode('cloud');
+        await loadAdminStatus(); // §roles: must resolve before the first
+                                  // render, or a staff member's first screen
+                                  // briefly shows profit figures.
         hideLoginForm();
         if (first) await offerMigrationIfNeeded();
         if (first) { first = false; readyResolve(); }
@@ -165,6 +170,7 @@ export async function openAccountMenu() {
     <button class="close-x" onclick="H.closeSheet()">✕</button>
     <h2>Hesap</h2>
     <div class="detail-row"><span class="k">${icon('users', { size: 14, className: 'icon-inline' })} Giriş yapan</span><span class="v">${escapeHtml(user ? user.email : '—')}</span></div>
+    ${isCloudActive() && isAdmin() ? `<button class="btn small outline" style="width:100%;margin-bottom:8px;" onclick="H.openTeamSettings()">${icon('users', { size: 15, className: 'icon-inline' })} Ekip / Roller</button>` : ''}
     <button class="btn danger" onclick="H.cloudLogOut()">Çıkış Yap</button>
   `;
   openSheet(html);
@@ -174,4 +180,48 @@ export async function cloudLogOut() {
   closeSheet();
   await logOut();
   location.reload();
+}
+
+// ---- ekip / roller (admin only) --------------------------------------------
+// §roles: admin e-postalarının listesini yönetir. Listede olmayan her giriş
+// yapmış kullanıcı otomatik "personel" sayılır — kâr/alış/ristorno gibi
+// mahrem rakamları göremez ama ekleme/düzenleme yapabilir. Bu sadece
+// arayüzde bir gizleme — bkz. team.js başındaki not.
+export async function openTeamSettings() {
+  if (!isAdmin()) { toast('Bu bölüm sadece admin için', 'error'); return; }
+  const admins = await getTeamAdmins();
+  const html = `
+    <button class="close-x" onclick="H.closeSheet()">✕</button>
+    <h2>Ekip / Roller</h2>
+    <p class="hint">Buradaki e-postayla giriş yapanlar admin sayılır — kâr, alış ve ristorno gibi mahrem rakamları görebilir. Listede olmayan her giriş yapmış kullanıcı personel sayılır: ekleme/düzenleme ve mütabakat gönderme yapabilir ama bu rakamları göremez.</p>
+    ${admins.length ? admins.map((e) => `
+      <div class="pay-row">
+        <div class="pay-info"><div class="pay-tutar" style="font-size:14px;">${escapeHtml(e)}</div></div>
+        <button class="pay-del" onclick="H.removeTeamAdmin('${jsAttr(e)}')">${icon('x', { size: 13 })}</button>
+      </div>`).join('') : '<p class="hint"><b>Henüz kimse eklenmedi — bu durumda güvenlik için giriş yapan herkes admin sayılır.</b> Kendi e-postanı ekleyerek personeli ayırmaya başla.</p>'}
+    <div class="field" style="margin-top:12px;"><label>Yeni Admin E-postası</label><input id="newAdminEmail" type="email" placeholder="ornek@ajans.com"></div>
+    <button class="btn primary" onclick="H.guard(this, () => H.addTeamAdmin())">Admin Olarak Ekle</button>
+  `;
+  openSheet(html);
+}
+
+export async function addTeamAdmin() {
+  const input = document.getElementById('newAdminEmail');
+  const email = (input.value || '').trim().toLowerCase();
+  if (!email) { toast('E-posta gir', 'error'); return; }
+  const admins = await getTeamAdmins();
+  if (admins.includes(email)) { toast('Zaten listede', 'error'); return; }
+  await setTeamAdmins([...admins, email]);
+  await loadAdminStatus();
+  toast('Eklendi', 'success');
+  openTeamSettings();
+}
+
+export async function removeTeamAdmin(email) {
+  if (!confirmAction(`${email} adresini admin listesinden çıkarmak istiyor musun?`)) return;
+  const admins = await getTeamAdmins();
+  await setTeamAdmins(admins.filter((e) => e !== email));
+  await loadAdminStatus();
+  toast('Çıkarıldı', 'success');
+  openTeamSettings();
 }
