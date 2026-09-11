@@ -11,6 +11,7 @@ import * as calc from './calc.js';
 import { fmt, formatDate, todayISO, escapeHtml, toast } from './util.js';
 import { openSheet, closeSheet } from './ui.js';
 import { icon } from './icons.js';
+import { isAdmin } from './cloud/team.js';
 
 // §72: whenever a cheque appears in a reconciliation, ALL available details
 // must be included and none of them silently omitted — always print every
@@ -52,7 +53,10 @@ export async function buildCustomerMutabakatText(clientId) {
       text += `\n${name}\n`;
       text += `Dönem: ${formatDate(c.campaign.startDate)} – ${formatDate(c.campaign.endDate)}\n`;
       text += `Satış: ${fmt(c.summary.totalSales)}\n`;
-      if (calc.hasAgencyFee(c.campaign)) text += `Ajans Bedeli: ${fmt(c.summary.agencyFee)}\n`;
+      // §roles: ajans ücreti de mahrem sayılıyor (bkz. components.js/screens.js
+      // aynı alanı admin-only gösteriyor) — personel bu metni gönderebilir ama
+      // bu satırı göremez.
+      if (calc.hasAgencyFee(c.campaign) && isAdmin()) text += `Ajans Bedeli: ${fmt(c.summary.agencyFee)}\n`;
       text += `Toplam Alacak: ${fmt(c.summary.customerReceivable)}\n`;
       text += `Tahsil Edilen: ${fmt(c.summary.customerCollected)}\n`;
       text += `Kalan: ${fmt(c.summary.customerRemaining)}\n`;
@@ -105,12 +109,14 @@ export async function buildVendorMutabakatText(vendorName) {
       text += `Müşteri: ${(c.campaign && c.campaign.clientName) || '—'}\n`;
       text += `Ürün: ${(c.campaign && c.campaign.productName) || '—'}\n`;
       text += `Dönem: ${formatDate(c.campaign && c.campaign.startDate)} – ${formatDate(c.campaign && c.campaign.endDate)}\n`;
-      text += `Alış: ${fmt(c.purchase)}\n`;
-      text += `Ristorno: ${fmt(c.ristorno)}\n`;
+      // §roles: Alış/Ristorno/Kâr mahrem — personel bu metni oluşturup
+      // gönderebilir ama bu satırları göremez/gönderemez (bkz. cloud/team.js).
+      if (isAdmin()) text += `Alış: ${fmt(c.purchase)}\n`;
+      if (isAdmin()) text += `Ristorno: ${fmt(c.ristorno)}\n`;
       text += `Net Ödenecek: ${fmt(c.netPayable)}\n`;
       text += `Ödenen: ${fmt(c.paid)}\n`;
       text += `Kalan: ${fmt(c.remaining)}\n`;
-      text += `Kâr: ${fmt(c.profit)}\n`;
+      if (isAdmin()) text += `Kâr: ${fmt(c.profit)}\n`;
     });
   }
 
