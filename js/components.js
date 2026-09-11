@@ -5,6 +5,7 @@ import { fmt, fmtN, formatDate, escapeHtml, hashColor, initials, jsAttr } from '
 import * as calc from './calc.js';
 import { todayISO } from './util.js';
 import { icon } from './icons.js';
+import { isAdmin } from './cloud/team.js';
 
 export function avatarHtml(name) {
   return `<div class="avatar" style="background:${hashColor(name)}">${escapeHtml(initials(name))}</div>`;
@@ -25,10 +26,11 @@ export function campaignCardHtml({ campaign, summary, active }) {
     </div>
     <div class="cc-main-grid">
       <div class="fi"><span class="label">Satış</span><span class="value">${fmtN(summary.totalSales)}</span></div>
+      ${isAdmin() ? `
       <div class="fi"><span class="label">Alış</span><span class="value">${fmtN(summary.totalPurchase)}</span></div>
       <div class="fi amber"><span class="label">Ristorno</span><span class="value">${fmtN(summary.totalRistorno)}</span></div>
       <div class="fi primary"><span class="label">Ajans Ücreti</span><span class="value">${summary.agencyFee > 0 ? fmtN(summary.agencyFee) : '—'}</span></div>
-      <div class="fi green"><span class="label">Kâr</span><span class="value">${fmtN(summary.campaignProfit)}</span></div>
+      <div class="fi green"><span class="label">Kâr</span><span class="value">${fmtN(summary.campaignProfit)}</span></div>` : ''}
       <div class="fi"><span class="label">Kalan</span><span class="value">${fmtN(summary.customerRemaining)}</span></div>
     </div>
   </div>`;
@@ -58,19 +60,21 @@ export function mediaRowHtml(media, group = {}) {
         ${vatBadge(media.vatRate)}
       </div>
     </div>
-    <div class="mr-grid">
+    <div class="mr-grid"${isAdmin() ? '' : ' style="grid-template-columns:1fr;"'}>
       <div class="fi"><span class="label">Satış</span><span class="value">${fmtN(media.sales)}</span></div>
+      ${isAdmin() ? `
       <div class="fi"><span class="label">Alış</span><span class="value">${fmtN(media.purchase)}</span></div>
-      <div class="fi amber"><span class="label">Ristorno</span><span class="value">${fmtN(ristorno)}</span></div>
+      <div class="fi amber"><span class="label">Ristorno</span><span class="value">${fmtN(ristorno)}</span></div>` : ''}
     </div>
     <div class="mr-grid" style="margin-top:4px;">
       <div class="fi"><span class="label">Net Ödenecek</span><span class="value">${fmtN(net)}</span></div>
       <div class="fi"><span class="label">Ödenen${group.shared ? ' (grup)' : ''}</span><span class="value">${groupPaid != null ? fmtN(groupPaid) : '—'}</span></div>
       <div class="fi"><span class="label">Kalan${group.shared ? ' (grup)' : ''}</span><span class="value">${groupRemaining != null ? fmtN(groupRemaining) : '—'}</span></div>
     </div>
+    ${isAdmin() ? `
     <div class="mr-grid" style="margin-top:4px;grid-template-columns:1fr;">
       <div class="fi green" style="text-align:left;"><span class="label">Kâr</span><span class="value" style="font-size:12.5px;">${fmtN(profit)}</span></div>
-    </div>
+    </div>` : ''}
   </div>`;
 }
 
