@@ -5,9 +5,10 @@
 import * as repo from './repo.js';
 import * as calc from './calc.js';
 import * as agg from './aggregate.js';
+import * as reminders from './reminders.js';
 import { fmt, fmtN, formatDate, escapeHtml, jsAttr, todayISO, hashColor, initials, toast } from './util.js';
 import { setTopbar, setContent, setActiveNav, setFabVisible, setFabAction, navigate, goBack } from './ui.js';
-import { avatarHtml, campaignCardHtml, mediaRowHtml, payRowHtml, chequeRowHtml, emptyState, vatDetailRow, vatBadge } from './components.js';
+import { avatarHtml, campaignCardHtml, mediaRowHtml, payRowHtml, chequeRowHtml, reminderRowHtml, emptyState, vatDetailRow, vatBadge } from './components.js';
 import { icon } from './icons.js';
 import { isCloudActive } from './cloud/bootstrap.js';
 import { isAdmin } from './cloud/team.js';
@@ -22,18 +23,34 @@ let customerSearch = '';
 export async function renderHome() {
   setActiveNav('home');
   setFabVisible(true);
+  // §takip: üstteki "+" (yeni müşteri) kaldırıldı — alttaki FAB'ın "Ekle"
+  // menüsünde zaten "Yeni Müşteri" birinci seçenek olarak duruyor, o yüzden
+  // hiçbir işlev kaybolmuyor. Boşalan yer bir bildirim/takip çanına gitti:
+  // yaklaşan çek vadeleri + kampanya bitişlerini tek listede toplayan Takip
+  // sayfasını açar. Rozet sayısı veri gelince aşağıda ayrıca doldurulacak.
   setTopbar(`
     <div class="brand-row">
       <img src="icons/logo.png" alt="Hande'M" class="brand-logo-img">
     </div>
     <div class="right">
       ${isCloudActive() ? `<button class="icon-btn" onclick="H.openAccountMenu()">${icon('users', { size: 16 })}</button>` : ''}
-      <button class="icon-btn add" onclick="H.openCustomerForm()">${icon('plus')}</button>
+      <button class="icon-btn bell" onclick="H.goto('/reminders')">${icon('bell', { size: 16 })}<span class="bell-badge" id="homeBellBadge" style="display:none;"></span></button>
     </div>
   `, 'brand-centered');
   setContent(`<div class="list-loading">Yükleniyor…</div>`);
 
   const { clients, totals } = await agg.getBusinessOverview();
+
+  // §takip: rozet sayısı için ekstra tek bir çek sorgusu yeterli — clients
+  // zaten yukarıda getBusinessOverview() ile çekildiği için buildReminders()
+  // burada yeniden hiçbir kampanya/müşteri sorgusu yapmıyor (bkz. reminders.js).
+  const [dueCheques, dismissedKeys] = await Promise.all([repo.getAllCheques(), reminders.getDismissedKeys()]);
+  const reminderCount = reminders.buildReminders(dueCheques, clients).filter((r) => !dismissedKeys.has(r.dismissKey)).length;
+  const bellBadgeEl = document.getElementById('homeBellBadge');
+  if (bellBadgeEl) {
+    bellBadgeEl.style.display = reminderCount > 0 ? 'flex' : 'none';
+    bellBadgeEl.textContent = reminderCount > 9 ? '9+' : String(reminderCount);
+  }
 
   // §roles: admin görür alış/ristorno/kâr — personel için boş sütunlarla
   // dörtlü bir ızgara bırakmak yerine tek, anlamlı bir özet şeridi (satış +
@@ -81,6 +98,48 @@ export async function renderHome() {
   }
 
   setContent(html);
+}
+
+// ============================================================================
+// TAKİP — Ana Sayfa'daki çan ikonundan açılır: yaklaşan çek vadeleri +
+// kampanya bitişlerinin tek, kalıcı-kapatılabilir listesi (bkz. reminders.js).
+// Kendi alt-nav sekmesi yok; Ana Sayfa'nın bir uzantısı olduğu için "home"
+// sekmesi aktif görünmeye devam eder, geri tuşu doğrudan Ana Sayfa'ya döner.
+// ============================================================================
+export async function renderReminders() {
+  setActiveNav('home');
+  setFabVisible(false);
+  setTopbar(`
+    <div class="left">
+      <button class="back" onclick="H.goto('/')">${icon('chevronLeft')}</button>
+      <div><h1>Takip</h1><div class="sub">Yaklaşan çek vadeleri ve kampanya bitişleri</div></div>
+    </div>
+  `);
+  setContent(`<div class="list-loading">Yükleniyor…</div>`);
+
+  const list = await reminders.getReminders();
+
+  let html = '';
+  if (list.length === 0) {
+    html += emptyState(icon('bell', { size: 32 }), 'Takipte bir şey yok', 'Vadesi yaklaşan bir çek veya bitmek üzere olan bir kampanya olunca burada görünecek.');
+  } else {
+    html += `<button class="btn ghost small" style="width:100%;margin-bottom:10px;" onclick="H.clearAllReminders()">Tümünü Temizle</button>`;
+    html += list.map((r) => reminderRowHtml(r, {
+      onDismiss: (row) => `H.dismissReminderRow('${jsAttr(row.dismissKey)}')`
+    })).join('');
+  }
+  setContent(html);
+}
+
+export async function dismissReminderRow(dismissKey) {
+  await reminders.dismissReminder(dismissKey);
+  renderReminders();
+}
+
+export async function clearAllReminders() {
+  const list = await reminders.getReminders();
+  await reminders.dismissAllReminders(list.map((r) => r.dismissKey));
+  renderReminders();
 }
 
 // ============================================================================

@@ -6,8 +6,19 @@ import * as calc from './calc.js';
 import { todayISO } from './util.js';
 import { icon } from './icons.js';
 import { isAdmin } from './cloud/team.js';
+import { logoForName } from './logos.js';
 
+// §logos: a curated real-brand logo (see logos.js) replaces the generic
+// colored-initials avatar wherever one is available for this exact
+// müşteri/yüklenici name — everywhere avatarHtml() is already used (Ana
+// Sayfa, Müşteriler, Finans müşteri/yüklenici rows, payment rows), with zero
+// call-site changes. Any name without a curated logo falls back to the
+// original colored-initials look, unchanged.
 export function avatarHtml(name) {
+  const logo = logoForName(name);
+  if (logo) {
+    return `<div class="avatar logo"><img src="${logo}" alt="${escapeHtml(name)}"></div>`;
+  }
   return `<div class="avatar" style="background:${hashColor(name)}">${escapeHtml(initials(name))}</div>`;
 }
 
@@ -146,6 +157,27 @@ export function chequeRowHtml(cheque, { onDelete, urgent } = {}) {
       <div class="small">${chequeStatusChip(cheque)}</div>
     </div>
     ${onDelete ? `<button class="pay-del" onclick="event.stopPropagation();${onDelete(cheque)}">${icon('x', { size: 13 })}</button>` : ''}
+  </div>`;
+}
+
+// §takip: Takip (reminders) sayfasındaki tek satır — vadesi yaklaşan bir çek
+// ya da bitişi yaklaşan bir kampanya. `onDismiss` verilirse sağda küçük bir
+// X çıkar (chequeRowHtml/payRowHtml'deki aynı .pay-del düğmesi), o satırı
+// kalıcı olarak kapatır.
+export function reminderRowHtml(r, { onDismiss } = {}) {
+  const iconName = r.type === 'cheque' ? 'receipt' : 'megaphone';
+  return `
+  <div class="row-card${r.overdue ? ' urgent' : ''}" onclick="H.goto('${r.link}')">
+    <div class="avatar" style="background:${r.overdue ? 'var(--rose-bg)' : 'var(--bg-soft)'};color:${r.overdue ? 'var(--rose-dark)' : 'var(--primary-dark)'}">${icon(iconName, { size: 16 })}</div>
+    <div class="info">
+      <div class="name">${escapeHtml(r.title)}</div>
+      <div class="sub">
+        <span>${r.overdue ? 'Vadesi geçti · ' + formatDate(r.date) : formatDate(r.date)}</span>
+        ${r.subtitle ? `<span>· ${escapeHtml(r.subtitle)}</span>` : ''}
+      </div>
+    </div>
+    ${r.amount != null ? `<div class="right-col"><div class="big">${fmt(r.amount)}</div></div>` : ''}
+    ${onDismiss ? `<button class="pay-del" onclick="event.stopPropagation();${onDismiss(r)}">${icon('x', { size: 13 })}</button>` : ''}
   </div>`;
 }
 

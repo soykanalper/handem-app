@@ -47,6 +47,7 @@ function compileRoute(pattern) {
 
 const ROUTES = [
   ['/', screens.renderHome],
+  ['/reminders', screens.renderReminders],
   ['/customers', screens.renderCustomers],
   ['/customers/:clientId', screens.renderClientDetail],
   ['/customers/:clientId/products/:productId', screens.renderProductDetail],
