@@ -169,17 +169,46 @@ function showAlertBanner(cheques) {
 }
 
 // -------- service worker + periodic checks -------------------------------------
-// A new sw.js (bumped CACHE_NAME) installs itself and skips waiting on its
-// own (see sw.js), but the ALREADY-OPEN page keeps running under the OLD
-// controller until it reloads — that gap is why an update could sit
-// installed-but-invisible until the user manually cleared site data. Reload
-// once, automatically, the moment a new service worker actually takes over.
+// §sw-reload-fix: a new sw.js (bumped CACHE_NAME) installs itself and skips
+// waiting on its own, then claims every open tab. This used to trigger an
+// IMMEDIATE, unconditional window.location.reload() the instant the new
+// worker took control — which silently wiped whatever the user was doing
+// (a half-filled Tahsilat/Çek sheet, mid-entry) if a background visibility
+// check (exactly what fires when returning from the native photo/camera
+// picker, or unlocking the phone, or switching apps and back) happened to
+// land while a new version was already live on the server. Confirmed via a
+// reproduction test: fill in a çek form, "deploy" a new version, merely
+// bring the tab back to visible — the form vanished with zero warning.
+// Now: taking control only shows a small, persistent "Yeni sürüm var"
+// banner — the page never reloads itself out from under the user; the
+// reload only ever happens on the user's own tap, whenever suits them.
+function showUpdateBanner() {
+  const banner = document.getElementById('updateBanner');
+  if (!banner || banner.classList.contains('show')) return;
+  banner.innerHTML = `
+    <div class="box">
+      <div class="tx"><b>Yeni sürüm hazır</b>Güncellemek için "Yenile"ye dokun — açık bir form varsa önce kaydettiğinden emin ol.</div>
+      <button id="updateBannerBtn" class="update-btn">Yenile</button>
+      <button id="updateBannerClose" class="update-close">✕</button>
+    </div>
+  `;
+  banner.classList.add('show');
+  document.getElementById('updateBannerBtn').addEventListener('click', () => window.location.reload());
+  document.getElementById('updateBannerClose').addEventListener('click', () => banner.classList.remove('show'));
+}
+
 if ('serviceWorker' in navigator) {
-  let reloadedForUpdate = false;
+  // A page's very FIRST controllerchange — going from no controller at all
+  // to the service worker claiming it for the first time ever on this
+  // device — isn't "an update" (there's nothing to update FROM yet, and
+  // nothing the user could have started in the instant since page load).
+  // Only show the banner for a controllerchange that happens while a
+  // controller already existed — a genuine "something newer just replaced
+  // what was already running" event.
+  let hadControllerAtStart = !!navigator.serviceWorker.controller;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (reloadedForUpdate) return;
-    reloadedForUpdate = true;
-    window.location.reload();
+    if (!hadControllerAtStart) { hadControllerAtStart = true; return; }
+    showUpdateBanner();
   });
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js').then((reg) => {

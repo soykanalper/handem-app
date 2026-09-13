@@ -43,10 +43,27 @@ export function mediaRistorno(media) {
 // Non-TV: ristorno is deducted from what's owed to the vendor.
 // TV: ristorno is NOT deducted — full purchase stays payable, ristorno becomes
 // a separate receivable from the TV vendor (tracked via TV Yıllık Ristorno).
+// This stays the NET (KDV hariç) figure — it's what "Net Ödenecek" shows on a
+// single media line. The real amount that's actually owed/collected (used for
+// every "Kalan"/"Borç"/"Alacak" total) is `mediaPayableInclusive` below.
 export function mediaNetPayable(media) {
   const purchase = Number(media.purchase) || 0;
   if (isTV(media.mediaType)) return purchase;
   return purchase - mediaRistorno(media);
+}
+
+// §kdv-fix: the real money owed to a vendor for one media line, KDV included
+// when a rate is set. A vendor's invoice is for the VAT-inclusive amount, so
+// this — not the net figure — is what "Mecraya Kalan"/"Mecra Borcu" and every
+// vendor remaining/excess calculation must be based on.
+export function mediaPayableInclusive(media) {
+  return vatInclusive(mediaNetPayable(media), media.vatRate);
+}
+
+// §kdv-fix: the real money receivable from the customer for one media line,
+// KDV included when a rate is set — what actually has to be collected.
+export function mediaReceivableInclusive(media) {
+  return vatInclusive(Number(media.sales) || 0, media.vatRate);
 }
 
 export function mediaProfit(media) {
@@ -61,9 +78,15 @@ export function campaignMediaTotals(mediaList) {
   const totalSales = list.reduce((s, m) => s + (Number(m.sales) || 0), 0);
   const totalPurchase = list.reduce((s, m) => s + (Number(m.purchase) || 0), 0);
   const totalRistorno = list.reduce((s, m) => s + mediaRistorno(m), 0);
-  const totalNetPayable = list.reduce((s, m) => s + mediaNetPayable(m), 0);
+  // §kdv-fix: totalNetPayable is now the KDV-DAHİL (VAT-inclusive) total —
+  // every caller of this field (Mecra Borcu, Kalan, mutabakat "Toplam Borç",
+  // vendor aggregates) means "how much do I actually owe this vendor", which
+  // has to include VAT. `totalPurchase`/`totalRistorno`/`totalProfit` stay
+  // net-based on purpose — Kâr is never a VAT figure.
+  const totalNetPayable = list.reduce((s, m) => s + mediaPayableInclusive(m), 0);
+  const totalReceivableInclusive = list.reduce((s, m) => s + mediaReceivableInclusive(m), 0);
   const totalProfit = list.reduce((s, m) => s + mediaProfit(m), 0);
-  return { totalSales, totalPurchase, totalRistorno, totalNetPayable, totalProfit };
+  return { totalSales, totalPurchase, totalRistorno, totalNetPayable, totalReceivableInclusive, totalProfit };
 }
 
 // campaign.agencyFeeType: 'none' | 'percent' | 'fixed'
@@ -83,11 +106,15 @@ export function hasAgencyFee(campaign) {
 }
 
 export function campaignSummary(campaign, mediaList, collections, payments) {
-  const { totalSales, totalPurchase, totalRistorno, totalNetPayable, totalProfit } = campaignMediaTotals(mediaList);
+  const { totalSales, totalPurchase, totalRistorno, totalNetPayable, totalReceivableInclusive, totalProfit } = campaignMediaTotals(mediaList);
   const agencyFee = campaignAgencyFee(campaign, totalSales);
-  const campaignProfit = totalProfit + agencyFee;
+  const campaignProfit = totalProfit + agencyFee; // net-based on purpose — Kâr excludes KDV
 
-  const customerReceivable = totalSales + agencyFee;
+  // §kdv-fix: Müşteri Alacağı is the real amount to collect — sales KDV
+  // dahil, plus the agency fee KDV dahil (a fee can carry its own rate via
+  // campaign.agencyFeeVatRate, same as anywhere else agencyFee is shown).
+  const agencyFeeInclusive = vatInclusive(agencyFee, campaign ? campaign.agencyFeeVatRate : null);
+  const customerReceivable = totalReceivableInclusive + agencyFeeInclusive;
   const customerCollected = (collections || []).filter((c) => !c.deleted).reduce((s, c) => s + (Number(c.amount) || 0), 0);
   const customerRemaining = Math.max(0, customerReceivable - customerCollected);
   const customerExcess = Math.max(0, customerCollected - customerReceivable);
@@ -98,7 +125,7 @@ export function campaignSummary(campaign, mediaList, collections, payments) {
 
   return {
     totalSales, totalPurchase, totalRistorno, totalNetPayable, totalProfit,
-    agencyFee, campaignProfit,
+    agencyFee, agencyFeeInclusive, campaignProfit,
     customerReceivable, customerCollected, customerRemaining, customerExcess,
     mediaPaid, mediaRemaining, mediaExcess
   };
@@ -113,8 +140,10 @@ export function vendorGroupInCampaign(mediaList, vendor) {
   return (mediaList || []).filter((m) => !m.deleted && m.vendor === vendor);
 }
 
+// §kdv-fix: KDV dahil — this feeds every vendor remaining/excess/"Kalan"
+// calculation, so it has to be the real amount owed, not the net figure.
 export function vendorGroupNetPayable(mediaList, vendor) {
-  return vendorGroupInCampaign(mediaList, vendor).reduce((s, m) => s + mediaNetPayable(m), 0);
+  return vendorGroupInCampaign(mediaList, vendor).reduce((s, m) => s + mediaPayableInclusive(m), 0);
 }
 
 export function vendorGroupPaid(payments, campaignId, vendor) {

@@ -427,7 +427,7 @@ export async function renderCampaignDetail({ campaignId }) {
 
     <div class="detail-card">
       <h3><span class="icon-inline">${icon('users', { size: 15 })} Müşteri Hesabı</span></h3>
-      <div class="detail-row"><span class="k">Müşteri Alacağı</span><span class="v">${fmt(summary.customerReceivable)}</span></div>
+      <div class="detail-row"><span class="k">Müşteri Alacağı (KDV Dahil)</span><span class="v">${fmt(summary.customerReceivable)}</span></div>
       <div class="detail-row green"><span class="k">Tahsil Edilen</span><span class="v">${fmt(summary.customerCollected)}</span></div>
       <div class="detail-row red"><span class="k">Müşteriden Kalan</span><span class="v">${fmt(summary.customerRemaining)}</span></div>
       ${summary.customerExcess > 0 ? `<div class="detail-row amber"><span class="k">Fazla Tahsilat</span><span class="v">${fmt(summary.customerExcess)}</span></div>` : ''}
@@ -436,11 +436,11 @@ export async function renderCampaignDetail({ campaignId }) {
 
     <div class="detail-card">
       <h3><span class="icon-inline">${icon('monitor', { size: 15 })} Mecra Hesabı</span></h3>
-      <div class="detail-row"><span class="k">Toplam Mecra Borcu</span><span class="v">${fmt(summary.totalNetPayable)}</span></div>
+      <div class="detail-row"><span class="k">Toplam Mecra Borcu (KDV Dahil)</span><span class="v">${fmt(summary.totalNetPayable)}</span></div>
       <div class="detail-row green"><span class="k">Ödenen</span><span class="v">${fmt(summary.mediaPaid)}</span></div>
       <div class="detail-row red"><span class="k">Mecraya Kalan</span><span class="v">${fmt(summary.mediaRemaining)}</span></div>
       ${summary.mediaExcess > 0 ? `<div class="detail-row amber"><span class="k">Fazla Ödeme</span><span class="v">${fmt(summary.mediaExcess)}</span></div>` : ''}
-      <button class="btn small outline" style="width:100%;margin-top:10px;" onclick="H.openPaymentForm({clientId:'${campaign.clientId}',campaignId:'${campaign.id}'})">${icon('landmark', { size: 15 })} Ödeme Ekle</button>
+      <button class="btn small outline" style="width:100%;margin-top:10px;" onclick="H.openCampaignPaymentPicker('${campaign.clientId}','${campaign.id}')">${icon('landmark', { size: 15 })} Ödeme Ekle</button>
     </div>
 
     <div class="section-title">Mecra / Yüklenici Kayıtları</div>
@@ -528,14 +528,14 @@ export async function renderMediaDetail({ mediaId }) {
       ${isAdmin() ? vatDetailRow('Alış', media.purchase, media.vatRate) : ''}
       ${vatDetailRow('Satış', media.sales, media.vatRate)}
       ${isAdmin() ? `<div class="detail-row amber"><span class="k">Ristorno % / Tutar</span><span class="v">%${fmtN(media.ristornoPercent)} · ${fmt(ristorno)}</span></div>` : ''}
-      <div class="detail-row"><span class="k">Net Ödenecek</span><span class="v">${fmt(net)}</span></div>
+      ${vatDetailRow('Net Ödenecek', net, media.vatRate)}
       ${isAdmin() ? `<div class="detail-row total green"><span class="k">Kâr</span><span class="v">${fmt(profit)}</span></div>` : ''}
       ${calc.isTV(media.mediaType) && isAdmin() ? `<div class="note-box"><b>TV Ristorno Kuralı</b>Ristorno ödemeden düşülmez; yıl sonunda TV Yıllık Ristorno üzerinden tahsil edilir.</div>` : ''}
     </div>
 
     <div class="detail-card">
       <h3>Ödeme Takibi${groupCount > 1 ? ' (bu tedarikçinin kampanyadaki tüm kayıtları)' : ''}</h3>
-      <div class="detail-row"><span class="k">Net Ödenecek</span><span class="v">${fmt(vendorGroupNet)}</span></div>
+      <div class="detail-row"><span class="k">Ödenecek (KDV Dahil)</span><span class="v">${fmt(vendorGroupNet)}</span></div>
       <div class="detail-row green"><span class="k">Ödenen</span><span class="v">${fmt(vendorPaid)}</span></div>
       <div class="detail-row red"><span class="k">Kalan</span><span class="v">${fmt(remaining)}</span></div>
       ${excess > 0 ? `<div class="detail-row amber"><span class="k">Fazla Ödeme</span><span class="v">${fmt(excess)}</span></div>` : ''}

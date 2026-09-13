@@ -155,11 +155,6 @@ export function compressImage(file, maxWidth = 1000, quality = 0.68) {
   });
 }
 
-// -------- simple confirm dialog (native, fine for a single-user tool) ------
-export function confirmAction(message) {
-  return window.confirm(message);
-}
-
 export function debounce(fn, wait = 250) {
   let t;
   return (...args) => {

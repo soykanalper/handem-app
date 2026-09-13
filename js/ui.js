@@ -133,6 +133,71 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
+// -------- confirm dialog -----------------------------------------------------
+// §confirm-fix: window.confirm()/alert()/prompt() are known to be unreliable
+// — sometimes silently doing nothing at all — in iOS Safari when a web app
+// is running in installed/"Add to Home Screen" standalone display mode: the
+// browser chrome that would normally render the native dialog isn't there.
+// This app is explicitly built to be added to the home screen (see
+// index.html's apple-mobile-web-app-capable meta tags), so every
+// destructive/undo confirmation needs a dialog that's actually part of the
+// page instead of relying on the browser. Built as its own overlay (see
+// #confirmOverlay in index.html) rather than reusing the generic bottom
+// sheet, so confirming a delete from inside an already-open sheet (e.g.
+// deleting a tahsilat from its own edit sheet) never clobbers that sheet's
+// in-progress form state.
+let _confirmResolve = null;
+
+export function confirmDialog(message, opts = {}) {
+  const okLabel = (opts && opts.okLabel) || 'Evet, Sil';
+  const cancelLabel = (opts && opts.cancelLabel) || 'Vazgeç';
+  const danger = !opts || opts.danger !== false; // default styling: destructive
+  return new Promise((resolve) => {
+    const overlay = document.getElementById('confirmOverlay');
+    const box = document.getElementById('confirmBox');
+    if (!overlay || !box) {
+      // extremely defensive fallback — should never happen since the
+      // markup ships with index.html, but never leave a caller hanging.
+      resolve(window.confirm(message));
+      return;
+    }
+    // Only one confirm can be meaningfully on screen at a time (matches
+    // window.confirm's own blocking behavior). If one is already open,
+    // resolve it as cancelled before replacing it.
+    if (_confirmResolve) resolveConfirmDialog(false);
+    _confirmResolve = resolve;
+    box.innerHTML = `
+      <p class="confirm-msg">${escapeHtml(message)}</p>
+      <div class="confirm-actions">
+        <button type="button" class="btn small outline" id="confirmCancelBtn">${escapeHtml(cancelLabel)}</button>
+        <button type="button" class="btn small ${danger ? 'danger' : 'primary'}" id="confirmOkBtn">${escapeHtml(okLabel)}</button>
+      </div>`;
+    overlay.classList.add('open');
+    document.getElementById('confirmOkBtn').onclick = () => resolveConfirmDialog(true);
+    document.getElementById('confirmCancelBtn').onclick = () => resolveConfirmDialog(false);
+    document.getElementById('confirmOkBtn').focus();
+  });
+}
+
+function resolveConfirmDialog(value) {
+  const overlay = document.getElementById('confirmOverlay');
+  const box = document.getElementById('confirmBox');
+  if (overlay) overlay.classList.remove('open');
+  if (box) box.innerHTML = '';
+  const resolve = _confirmResolve;
+  _confirmResolve = null;
+  if (resolve) resolve(value);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const confirmOverlay = document.getElementById('confirmOverlay');
+  if (confirmOverlay) {
+    confirmOverlay.addEventListener('click', (e) => {
+      if (e.target === confirmOverlay) resolveConfirmDialog(false);
+    });
+  }
+});
+
 // -------- lightbox -----------------------------------------------------------
 export function openLightbox(src) {
   const lb = document.getElementById('lightbox');

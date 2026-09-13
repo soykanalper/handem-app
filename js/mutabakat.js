@@ -57,7 +57,9 @@ export async function buildCustomerMutabakatText(clientId) {
       // aynı alanı admin-only gösteriyor) — personel bu metni gönderebilir ama
       // bu satırı göremez.
       if (calc.hasAgencyFee(c.campaign) && isAdmin()) text += `Ajans Bedeli: ${fmt(c.summary.agencyFee)}\n`;
-      text += `Toplam Alacak: ${fmt(c.summary.customerReceivable)}\n`;
+      // §kdv-fix: bu tutar artık KDV dahil — hem müşteriye giden metinde hem
+      // dahili görünümde bunu her zaman açıkça belirtiyoruz.
+      text += `Toplam Alacak (KDV Dahil): ${fmt(c.summary.customerReceivable)}\n`;
       text += `Tahsil Edilen: ${fmt(c.summary.customerCollected)}\n`;
       text += `Kalan: ${fmt(c.summary.customerRemaining)}\n`;
     });
@@ -78,7 +80,7 @@ export async function buildCustomerMutabakatText(clientId) {
   }
 
   text += `\nTOPLAM\n`;
-  text += `Toplam Alacak: ${fmt(s.customerReceivable)}\n`;
+  text += `Toplam Alacak (KDV Dahil): ${fmt(s.customerReceivable)}\n`;
   text += `Toplam Tahsilat: ${fmt(s.customerCollected)}\n`;
   text += `Kalan: ${fmt(s.customerRemaining)}\n`;
   if (s.customerExcess > 0) text += `Fazla Tahsilat: ${fmt(s.customerExcess)}\n`;
@@ -109,14 +111,22 @@ export async function buildVendorMutabakatText(vendorName) {
       text += `Müşteri: ${(c.campaign && c.campaign.clientName) || '—'}\n`;
       text += `Ürün: ${(c.campaign && c.campaign.productName) || '—'}\n`;
       text += `Dönem: ${formatDate(c.campaign && c.campaign.startDate)} – ${formatDate(c.campaign && c.campaign.endDate)}\n`;
-      // §roles: Alış/Ristorno/Kâr mahrem — personel bu metni oluşturup
+      // §roles: Alış/Ristorno mahrem — personel bu metni oluşturup
       // gönderebilir ama bu satırları göremez/gönderemez (bkz. cloud/team.js).
       if (isAdmin()) text += `Alış: ${fmt(c.purchase)}\n`;
       if (isAdmin()) text += `Ristorno: ${fmt(c.ristorno)}\n`;
-      text += `Net Ödenecek: ${fmt(c.netPayable)}\n`;
+      // §kdv-fix: "Net Ödenecek" ismi KDV hariç bir rakamı çağrıştırıyordu ama
+      // buradaki tutar (c.netPayable / vendorGroupNetPayable) artık KDV dahil
+      // gerçek borç — ismi buna göre netleştirildi.
+      text += `Ödenecek Tutar (KDV Dahil): ${fmt(c.netPayable)}\n`;
       text += `Ödenen: ${fmt(c.paid)}\n`;
       text += `Kalan: ${fmt(c.remaining)}\n`;
-      if (isAdmin()) text += `Kâr: ${fmt(c.profit)}\n`;
+      // §no-profit-in-mutabakat: Kâr buradan tamamen KALDIRILDI — bu metin
+      // WhatsApp üzerinden doğrudan mecraya/yükleniciye gönderiliyor.
+      // isAdmin() kontrolü sadece uygulama İÇİNDE personelden gizlemeye
+      // yarıyordu; admin (işletme sahibi) bu metni gönderdiğinde kâr rakamı
+      // doğrudan karşı tarafa gidiyordu. Kâr marjı asla dışarıya gönderilen
+      // bir mutabakat metnine yazılmamalı — admin dahil kimseye.
     });
   }
 
@@ -135,7 +145,7 @@ export async function buildVendorMutabakatText(vendorName) {
   }
 
   text += `\nTOPLAM\n`;
-  text += `Toplam Borç: ${fmt(data.totalNetPayable)}\n`;
+  text += `Toplam Borç (KDV Dahil): ${fmt(data.totalNetPayable)}\n`;
   text += `Toplam Ödenen: ${fmt(data.totalPaid)}\n`;
   text += `Kalan: ${fmt(data.totalRemaining)}\n`;
   if (data.totalExcess > 0) text += `Fazla Ödeme: ${fmt(data.totalExcess)}\n`;

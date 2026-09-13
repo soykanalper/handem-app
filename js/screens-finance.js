@@ -5,8 +5,8 @@
 import * as repo from './repo.js';
 import * as calc from './calc.js';
 import * as agg from './aggregate.js';
-import { fmt, fmtN, formatDate, escapeHtml, jsAttr, todayISO, toast, confirmAction } from './util.js';
-import { setTopbar, setContent, setActiveNav, setFabVisible, setFabAction, navigate, refresh, openSheet, closeSheet, openLightbox } from './ui.js';
+import { fmt, fmtN, formatDate, escapeHtml, jsAttr, todayISO, toast } from './util.js';
+import { setTopbar, setContent, setActiveNav, setFabVisible, setFabAction, navigate, refresh, openSheet, closeSheet, openLightbox, confirmDialog } from './ui.js';
 import { avatarHtml, payRowHtml, chequeRowHtml, chequeStatusChip, chequeUsedFragment, emptyState, photoStripHtml, photoGalleryHtml } from './components.js';
 import { icon } from './icons.js';
 import { isAdmin } from './cloud/team.js';
@@ -269,7 +269,7 @@ export async function renderMediaTypeDetail({ mediaType }) {
         <div class="si amber"><div class="label">Ristorno</div><div class="value">${fmtN(t.totalRistorno)}</div></div>
       </div>
       <div class="summary-strip">
-        <div class="si"><div class="label">Net Borç</div><div class="value">${fmtN(t.totalNetPayable)}</div></div>
+        <div class="si"><div class="label">Borç (KDV Dahil)</div><div class="value">${fmtN(t.totalNetPayable)}</div></div>
         <div class="si green"><div class="label">Ödenen</div><div class="value">${fmtN(t.totalPaid)}</div></div>
         <div class="si red"><div class="label">Kalan</div><div class="value">${fmtN(t.totalRemaining)}</div></div>
       </div>
@@ -330,7 +330,7 @@ export async function renderFinanceVendorDetail({ vendor }) {
       <div class="si amber"><div class="label">Ristorno</div><div class="value">${fmtN(data.totalRistorno)}</div></div>
     </div>
     <div class="summary-strip cols4">
-      <div class="si"><div class="label">Net Borç</div><div class="value">${fmtN(data.totalNetPayable)}</div></div>
+      <div class="si"><div class="label">Borç (KDV Dahil)</div><div class="value">${fmtN(data.totalNetPayable)}</div></div>
       <div class="si green"><div class="label">Ödenen</div><div class="value">${fmtN(data.totalPaid)}</div></div>
       <div class="si red"><div class="label">Kalan</div><div class="value">${fmtN(data.totalRemaining)}</div></div>
       <div class="si green"><div class="label">Kâr</div><div class="value">${fmtN(data.totalProfit)}</div></div>
@@ -338,7 +338,7 @@ export async function renderFinanceVendorDetail({ vendor }) {
   ` : `
     <div class="summary-strip cols4">
       <div class="si"><div class="label">Satış</div><div class="value">${fmtN(data.totalSales)}</div></div>
-      <div class="si"><div class="label">Net Borç</div><div class="value">${fmtN(data.totalNetPayable)}</div></div>
+      <div class="si"><div class="label">Borç (KDV Dahil)</div><div class="value">${fmtN(data.totalNetPayable)}</div></div>
       <div class="si green"><div class="label">Ödenen</div><div class="value">${fmtN(data.totalPaid)}</div></div>
       <div class="si red"><div class="label">Kalan</div><div class="value">${fmtN(data.totalRemaining)}</div></div>
     </div>
@@ -364,7 +364,7 @@ export async function renderFinanceVendorDetail({ vendor }) {
         ${isAdmin() ? `<div class="detail-row"><span class="k">Alış</span><span class="v">${fmt(c.purchase)}</span></div>` : ''}
         <div class="detail-row"><span class="k">Satış</span><span class="v">${fmt(c.sales)}</span></div>
         ${isAdmin() ? `<div class="detail-row amber"><span class="k">Ristorno</span><span class="v">${fmt(c.ristorno)}</span></div>` : ''}
-        <div class="detail-row"><span class="k">Net Ödenecek</span><span class="v">${fmt(c.netPayable)}</span></div>
+        <div class="detail-row"><span class="k">Ödenecek (KDV Dahil)</span><span class="v">${fmt(c.netPayable)}</span></div>
         <div class="detail-row green"><span class="k">Ödenen</span><span class="v">${fmt(c.paid)}</span></div>
         <div class="detail-row red"><span class="k">Kalan</span><span class="v">${fmt(c.remaining)}</span></div>
         ${isAdmin() ? `<div class="detail-row green"><span class="k">Kâr</span><span class="v">${fmt(c.profit)}</span></div>` : ''}
@@ -815,7 +815,7 @@ export async function saveTvRistorno(vendorName, recordId) {
 }
 
 export async function deleteTvRistornoRecord(recordId, vendorName) {
-  if (!confirmAction('Bu yıllık ristorno kaydını silmek istiyor musun?')) return;
+  if (!(await confirmDialog('Bu yıllık ristorno kaydını silmek istiyor musun?'))) return;
   await repo.deleteTvRistorno(recordId);
   toast('Kayıt silindi', 'success');
   closeSheet();

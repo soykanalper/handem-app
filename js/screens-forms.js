@@ -6,8 +6,8 @@
 // ---------------------------------------------------------------------------
 import * as repo from './repo.js';
 import * as calc from './calc.js';
-import { fmt, fmtN, todayISO, addDays, daysBetween, formatDate, escapeHtml, jsAttr, toast, confirmAction, uid } from './util.js';
-import { openSheet, closeSheet, navigate, refresh, openLightbox, noteFieldHtml } from './ui.js';
+import { fmt, fmtN, todayISO, addDays, daysBetween, formatDate, escapeHtml, jsAttr, toast, uid } from './util.js';
+import { openSheet, closeSheet, navigate, refresh, openLightbox, noteFieldHtml, confirmDialog } from './ui.js';
 import { pickPhoto } from './photo.js';
 import { chequeStatusChip, photoStripHtml, photoGalleryHtml } from './components.js';
 import { icon } from './icons.js';
@@ -96,7 +96,7 @@ export async function saveCustomer(clientId) {
 }
 
 export async function deleteCustomer(clientId) {
-  if (!confirmAction('Bu müşteriyi silmek istiyor musun? Finansal geçmiş saklanır.')) return;
+  if (!(await confirmDialog('Bu müşteriyi silmek istiyor musun? Finansal geçmiş saklanır.'))) return;
   await repo.cascadeDeleteClient(clientId);
   toast('Müşteri silindi', 'success');
   navigate('/customers');
@@ -135,7 +135,7 @@ export async function saveProduct(clientId, productId) {
 }
 
 export async function deleteProduct(productId, clientId) {
-  if (!confirmAction('Bu ürünü silmek istiyor musun? Finansal geçmiş saklanır.')) return;
+  if (!(await confirmDialog('Bu ürünü silmek istiyor musun? Finansal geçmiş saklanır.'))) return;
   await repo.cascadeDeleteProduct(productId);
   toast('Ürün silindi', 'success');
   navigate('/customers/' + clientId);
@@ -247,7 +247,7 @@ export async function saveCampaign(clientId, productId, campaignId) {
 }
 
 export async function deleteCampaign(campaignId, clientId, productId) {
-  if (!confirmAction('Bu kampanyayı silmek istiyor musun? Finansal geçmiş saklanır.')) return;
+  if (!(await confirmDialog('Bu kampanyayı silmek istiyor musun? Finansal geçmiş saklanır.'))) return;
   await repo.cascadeDeleteCampaign(campaignId);
   toast('Kampanya silindi', 'success');
   navigate('/customers/' + clientId + '/products/' + productId);
@@ -386,7 +386,7 @@ export async function saveMedia(campaignId, mediaId) {
 }
 
 export async function deleteMedia(mediaId, campaignId) {
-  if (!confirmAction('Bu mecra kaydını silmek istiyor musun? Finansal geçmiş saklanır.')) return;
+  if (!(await confirmDialog('Bu mecra kaydını silmek istiyor musun? Finansal geçmiş saklanır.'))) return;
   await repo.deleteMedia(mediaId);
   toast('Mecra kaydı silindi', 'success');
   navigate('/campaigns/' + campaignId);
@@ -690,7 +690,7 @@ export async function deleteCollection(collectionId) {
   const vendorMoves = movements.filter((m) => m.toType === 'vendor' && m.paymentId);
   let msg = 'Bu tahsilatı silmek istiyor musun?';
   if (movements.length) msg = `Bu çeğin ${movements.length} hareketlik bir geçmişi var — silersen tüm geçmişi${vendorMoves.length ? ' ve bağlı ödeme kayıtlarını' : ''} da silinecek. ` + msg;
-  if (!confirmAction(msg)) return;
+  if (!(await confirmDialog(msg))) return;
   for (const m of vendorMoves) {
     await repo.deletePayment(m.paymentId);
   }
@@ -898,7 +898,7 @@ export async function savePayment(paymentId) {
 }
 
 export async function deletePayment(paymentId) {
-  if (!confirmAction('Bu ödemeyi silmek istiyor musun?')) return;
+  if (!(await confirmDialog('Bu ödemeyi silmek istiyor musun?'))) return;
   const pay = await repo.getPayment(paymentId);
   await repo.deletePayment(paymentId);
   if (pay && pay.chequeId && pay.chequeMovementId) {
@@ -1104,7 +1104,40 @@ export function openCampaignQuickAddMenu(clientId, campaignId) {
     <h2>Hızlı İşlem</h2>
     <div class="action-sheet-list">
       <button class="action-item" onclick="H.closeSheet();H.openCollectionForm({clientId:'${clientId}',campaignId:'${campaignId}'})"><span class="ico">${icon('arrowDownCircle', { size: 18 })}</span>Tahsilat Ekle</button>
-      <button class="action-item" onclick="H.closeSheet();H.openPaymentForm({clientId:'${clientId}',campaignId:'${campaignId}'})"><span class="ico">${icon('landmark', { size: 18 })}</span>Ödeme Ekle</button>
+      <button class="action-item" onclick="H.closeSheet();H.openCampaignPaymentPicker('${clientId}','${campaignId}')"><span class="ico">${icon('landmark', { size: 18 })}</span>Ödeme Ekle</button>
+    </div>
+  `;
+  openSheet(html);
+}
+
+// §bugfix-vendor-mixup: the campaign-level "Ödeme Ekle" entry points (this
+// FAB menu, and the combined "Mecra Hesabı" card on Campaign Detail) used to
+// open the payment form with an EMPTY vendor field — that card shows every
+// vendor's remaining balance summed together, so nothing there told the user
+// which specific vendor they were about to pay. If a campaign had more than
+// one mecra (e.g. ATV + Star TV) and the user picked/typed the wrong name, a
+// payment meant for one vendor got silently booked against another — looking
+// like the app was "moving money between vendors" when really it was just an
+// ambiguous, unscoped form. Now: 0 vendors falls back to the old blank form,
+// exactly 1 vendor is preset automatically (no extra tap needed), and 2+
+// vendors get an explicit picker naming each one — never a guess.
+export async function openCampaignPaymentPicker(clientId, campaignId) {
+  const media = await repo.getMediaForCampaign(campaignId);
+  const vendors = [...new Set(media.filter((m) => !m.deleted).map((m) => m.vendor))];
+  if (vendors.length === 0) {
+    openPaymentForm({ clientId, campaignId });
+    return;
+  }
+  if (vendors.length === 1) {
+    openPaymentForm({ clientId, campaignId, vendor: vendors[0] });
+    return;
+  }
+  const html = `
+    <button class="close-x" onclick="H.closeSheet()">✕</button>
+    <h2>Hangi Mecraya Ödeme?</h2>
+    <p class="hint" style="margin-top:-6px;">Bu kampanyada birden fazla mecra var — yanlış mecraya yazılmasın diye önce seçmen gerekiyor.</p>
+    <div class="action-sheet-list">
+      ${vendors.map((v) => `<button class="action-item" onclick="H.closeSheet();H.openPaymentForm({clientId:'${clientId}',campaignId:'${campaignId}',vendor:'${jsAttr(v)}'})"><span class="ico">${icon('landmark', { size: 18 })}</span>${escapeHtml(v)}</button>`).join('')}
     </div>
   `;
   openSheet(html);
@@ -1229,7 +1262,7 @@ export async function undoLastChequeMovement(chequeId) {
   const msg = last.toType === 'vendor'
     ? `En son "${label}" hareketini geri almak istiyor musun? Bağlı ödeme kaydı da silinecek.`
     : `En son "${label}" hareketini geri almak istiyor musun?`;
-  if (!confirmAction(msg)) return;
+  if (!(await confirmDialog(msg))) return;
   if (last.toType === 'vendor' && last.paymentId) {
     await repo.deletePayment(last.paymentId);
   }
@@ -1262,7 +1295,7 @@ export async function deleteChequeRecord(chequeId) {
   let msg = 'Bu çeki silmek istiyor musun?';
   if (movements.length) msg = `Bu çeğin ${movements.length} hareketlik bir geçmişi var — silersen tüm geçmişi ve bağlı ${vendorMoves.length > 0 ? 'ödeme kayıtları' : 'kayıtları'} da silinecek. ` + msg;
   if (col) msg += ' Bu çeki oluşturan tahsilat kaydı da silinecek.';
-  if (!confirmAction(msg)) return;
+  if (!(await confirmDialog(msg))) return;
   for (const m of vendorMoves) {
     await repo.deletePayment(m.paymentId);
   }
