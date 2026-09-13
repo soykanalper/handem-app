@@ -1,4 +1,4 @@
-const CACHE_NAME = 'handem-v18';
+const CACHE_NAME = 'handem-v20';
 const APP_SHELL = [
   './',
   './index.html',
@@ -14,6 +14,8 @@ const APP_SHELL = [
   './js/photo.js',
   './js/icons.js',
   './js/aggregate.js',
+  './js/reminders.js',
+  './js/logos.js',
   './js/components.js',
   './js/screens.js',
   './js/screens-finance.js',
