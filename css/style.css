@@ -34,6 +34,13 @@
 }
 *{box-sizing:border-box;}
 html,body{margin:0;padding:0;}
+/* §touch-fix: defensive mobile tap reliability — without this, some mobile
+   browsers wait ~300ms after a tap (to see if it becomes a double-tap-to-
+   zoom gesture) before firing the click, and a fast double-tap on a button
+   can occasionally register as a zoom gesture instead of two taps. Every
+   tappable control in this app is a single-purpose action button, never
+   something that should be double-tap-zoomed, so this is safe everywhere. */
+button, .row-card, .action-item, .picker-item, .pill, .nav-btn, .fab, .close-x, .icon-btn, a{ touch-action:manipulation; }
 body{ font-family:var(--font-sans); background:var(--bg); color:var(--ink); display:flex; justify-content:center; -webkit-font-smoothing:antialiased; }
 #app{ width:100%; max-width:480px; min-height:100vh; background:var(--bg); display:grid; grid-template-columns:1fr; grid-template-rows:auto 1fr auto; grid-template-areas:"topbar" "content" "nav"; position:relative; }
 :focus-visible{ outline:2.5px solid var(--primary); outline-offset:2px; }
@@ -283,6 +290,16 @@ a{ color:inherit; }
 .picker-add{ display:flex; gap:8px; margin-top:8px; }
 .picker-add input{ flex:1; }
 
+/* §confirm-fix: in-app confirm dialog (replaces window.confirm) — sits above
+   the generic sheet overlay (z-index 50) so it can stack on top of an
+   already-open sheet. */
+.confirm-overlay{ position:fixed; inset:0; background:rgba(34,27,51,0.55); display:none; align-items:center; justify-content:center; z-index:70; padding:0 20px; }
+.confirm-overlay.open{ display:flex; }
+.confirm-box{ background:var(--bg-card); width:100%; max-width:360px; border-radius:16px; padding:20px 18px 16px; box-shadow:0 12px 32px rgba(0,0,0,0.25); }
+.confirm-msg{ font-size:var(--fs-4); color:var(--ink); line-height:1.45; margin:0 0 16px; white-space:pre-line; }
+.confirm-actions{ display:flex; gap:8px; }
+.confirm-actions .btn{ flex:1; margin-top:0; }
+
 /* lightbox */
 .lightbox{ position:fixed; inset:0; background:rgba(10,8,18,0.94); display:none; align-items:center; justify-content:center; z-index:80; }
 .lightbox.open{ display:flex; }
@@ -303,6 +320,18 @@ a{ color:inherit; }
 .alert-banner .box .tx{ flex:1; font-size:var(--fs-4); color:var(--amber-dark); font-weight:var(--fw-medium); line-height:1.4; }
 .alert-banner .box b{ display:block; font-size:var(--fs-4); font-weight:var(--fw-semibold); margin-bottom:2px; }
 .alert-banner .box button{ background:none; border:none; color:var(--amber-dark); cursor:pointer; flex-shrink:0; display:inline-flex; align-items:center; }
+
+/* §sw-reload-fix: "new version available" banner — bottom-anchored (above
+   the nav bar) so it never collides with the top-anchored due-date alert
+   banner above, and stays put until the user acts instead of auto-hiding
+   like that one does. */
+.update-banner{ position:fixed; bottom:calc(72px + var(--safe-b)); left:50%; transform:translateX(-50%) translateY(140%); z-index:86; width:100%; max-width:440px; padding:0 16px; transition:transform .25s ease; }
+.update-banner.show{ transform:translateX(-50%) translateY(0); }
+.update-banner .box{ background:var(--primary-bg); border:1.5px solid var(--primary); border-radius:14px; padding:12px 14px; box-shadow:0 8px 20px rgba(0,0,0,0.15); display:flex; align-items:center; gap:10px; }
+.update-banner .box .tx{ flex:1; font-size:var(--fs-4); color:var(--primary-dark); font-weight:var(--fw-medium); line-height:1.4; }
+.update-banner .box b{ display:block; font-size:var(--fs-4); font-weight:var(--fw-semibold); margin-bottom:2px; }
+.update-banner .box .update-btn{ background:var(--primary); color:#fff; border:none; border-radius:9px; padding:8px 13px; font-size:var(--fs-3); font-weight:var(--fw-bold); cursor:pointer; flex-shrink:0; }
+.update-banner .box .update-close{ background:none; border:none; color:var(--primary-dark); cursor:pointer; flex-shrink:0; display:inline-flex; align-items:center; padding:2px; }
 
 .cheque-detail-box{ background:var(--bg-soft); border-radius:13px; padding:12px 13px; margin-top:4px; }
 
