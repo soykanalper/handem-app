@@ -82,6 +82,12 @@ a{ color:inherit; }
 .icon-btn.add{ background:var(--primary); color:#fff; }
 .brand-row{ display:flex; align-items:center; gap:8px; }
 
+/* §takip: Ana Sayfa çan ikonu — üstünde kaç açık hatırlatma varsa küçük
+   kırmızı bir rozet gösterir; hatırlatma yoksa rozet gizli kalır (bkz.
+   screens.js renderHome, id="homeBellBadge"). */
+.icon-btn.bell{ position:relative; }
+.bell-badge{ position:absolute; top:2px; right:2px; min-width:15px; height:15px; padding:0 3px; border-radius:8px; background:var(--rose); color:#fff; font-size:9.5px; font-weight:var(--fw-bold); line-height:15px; text-align:center; display:flex; align-items:center; justify-content:center; }
+
 /* Home / Müşteriler topbar: the logo is the ONLY thing in this slot, and it
    is truly centered in the topbar regardless of what sits in .right — no
    hand-typed brand name is ever placed next to it.
@@ -115,6 +121,11 @@ a{ color:inherit; }
 .row-card:active{ background:var(--bg-soft); }
 .row-card.urgent{ border-left:3px solid var(--rose); padding-left:9px; }
 .avatar{ width:38px; height:38px; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:var(--fw-semibold); font-size:var(--fs-4); flex-shrink:0; }
+/* §logos: a real brand logo sits on a plain white card (not the colored
+   circle — logos already carry their own color/shape) so any aspect ratio
+   or background looks clean at this size. */
+.avatar.logo{ background:#fff; border:1px solid var(--border); border-radius:10px; padding:3px; }
+.avatar.logo img{ width:100%; height:100%; object-fit:contain; }
 .row-card .info{ flex:1; min-width:0; }
 .row-card .name{ font-size:var(--fs-5); font-weight:var(--fw-semibold); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .row-card .sub{ font-size:var(--fs-3); color:var(--ink-soft); margin-top:2px; display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
