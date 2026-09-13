@@ -11,19 +11,28 @@ export function avatarHtml(name) {
   return `<div class="avatar" style="background:${hashColor(name)}">${escapeHtml(initials(name))}</div>`;
 }
 
-export function campaignCardHtml({ campaign, summary, active }) {
+// §home-campaigns: clientName + mediaByType are optional — only the
+// redesigned Ana Sayfa (cross-customer list) passes them, so every existing
+// call site (Product Detail's own campaign list, already scoped to one
+// customer/product) renders byte-identical to before.
+export function campaignCardHtml({ campaign, summary, active, clientName, mediaByType }) {
   const displayName = campaign.name || campaign.productName || 'Kampanya';
   const statusChip = active ? `<span class="chip green">Aktif</span>` : `<span class="chip neutral">Pasif</span>`;
   return `
   <div class="campaign-card ${active ? 'active' : 'passive'}" onclick="H.goto('/campaigns/${campaign.id}')">
     <div class="cc-top">
       <div>
+        ${clientName ? `<div class="cc-client">${escapeHtml(clientName)}</div>` : ''}
         <div class="cc-name">${escapeHtml(displayName)}</div>
         ${campaign.productName ? `<div class="cc-product">${escapeHtml(campaign.productName)}</div>` : ''}
         <div class="cc-status">${statusChip}</div>
       </div>
       <div class="cc-dates">${formatDate(campaign.startDate)}<br>— ${formatDate(campaign.endDate)}</div>
     </div>
+    ${mediaByType && mediaByType.length ? `
+    <div class="usage-tags">
+      ${mediaByType.map((g) => `<span class="usage-tag"><span onclick="event.stopPropagation();H.goto('/finance/vendor/t/${encodeURIComponent(g.mediaType)}')" style="cursor:pointer;"><b>${escapeHtml(g.mediaType)}</b></span> <span class="vendors">${g.vendors.map((v) => `<span onclick="event.stopPropagation();H.goto('/finance/vendor/${encodeURIComponent(v)}')" style="cursor:pointer;text-decoration:underline;">${escapeHtml(v)}</span>`).join(', ')}</span></span>`).join('')}
+    </div>` : ''}
     <div class="cc-main-grid">
       <div class="fi"><span class="label">Satış</span><span class="value">${fmtN(summary.totalSales)}</span></div>
       ${isAdmin() ? `

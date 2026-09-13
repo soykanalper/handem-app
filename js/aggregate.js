@@ -79,6 +79,23 @@ export async function getBusinessOverview() {
   return { clients, totals };
 }
 
+// §home-campaigns: flattens getBusinessOverview()'s per-client campaign
+// lists into one cross-customer "active campaigns" list for the redesigned
+// Ana Sayfa — newest-started first. Takes the `clients` array already
+// returned by getBusinessOverview()/getAllClientsAggregate() so this never
+// re-fetches anything; it's a pure reshape of data already in memory.
+export function activeCampaignsFromClients(clients) {
+  const rows = [];
+  clients.forEach(({ client, campaigns }) => {
+    campaigns.forEach((c) => {
+      if (!c.active) return;
+      rows.push({ campaign: c.campaign, clientName: client.name, media: c.media, summary: c.summary, active: true });
+    });
+  });
+  rows.sort((a, b) => (b.campaign.startDate || '').localeCompare(a.campaign.startDate || ''));
+  return rows;
+}
+
 export async function getProductCampaignCount(productId) {
   const campaigns = await repo.getCampaignsForProduct(productId);
   return campaigns.length;

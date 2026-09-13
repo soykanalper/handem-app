@@ -34,7 +34,6 @@ export async function renderHome() {
   setContent(`<div class="list-loading">Yükleniyor…</div>`);
 
   const { clients, totals } = await agg.getBusinessOverview();
-  clients.sort((a, b) => a.client.name.localeCompare(b.client.name, 'tr'));
 
   // §roles: admin görür alış/ristorno/kâr — personel için boş sütunlarla
   // dörtlü bir ızgara bırakmak yerine tek, anlamlı bir özet şeridi (satış +
@@ -61,23 +60,24 @@ export async function renderHome() {
     html += `<div class="note-box"><b>Fazla Tahsilat</b>${fmt(totals.customerExcess)}</div>`;
   }
 
-  html += `<div class="section-title"><span class="icon-inline">${icon('users', { size: 13 })} Müşteriler</span></div>`;
+  // §home-campaigns: Ana Sayfa artık müşteri listesi değil, tüm müşteriler
+  // genelinde AKTİF kampanyaların tek listesi — en son başlayan en üstte.
+  // Tüm müşterileri gezmeye gerek kalmadan "şu an neyle uğraşıyorum" sorusuna
+  // doğrudan cevap versin diye. Müşteri bazlı gezinme "Müşteriler" alt nav
+  // sekmesinde aynen duruyor, hiçbir sayfa yapısı değişmedi — sadece burası.
+  const activeCampaigns = agg.activeCampaignsFromClients(clients);
+  html += `<div class="section-title"><span class="icon-inline">${icon('megaphone', { size: 13 })} Aktif Kampanyalar · en son başlayan üstte</span></div>`;
 
-  if (clients.length === 0) {
-    html += emptyState(icon('users', { size: 32 }), 'Henüz müşterin yok', 'Sağ üstteki + ile başla.');
+  if (activeCampaigns.length === 0) {
+    html += emptyState(icon('megaphone', { size: 32 }), 'Aktif kampanya yok', 'Bir müşteriye kampanya ekleyince burada görünecek.');
   } else {
-    html += clients.map((r) => `
-      <div class="row-card" onclick="H.goto('/customers/${r.client.id}')">
-        ${avatarHtml(r.client.name)}
-        <div class="info">
-          <div class="name">${escapeHtml(r.client.name)}</div>
-          <div class="sub">${r.activeCount} aktif kampanya</div>
-        </div>
-        <div class="right-col">
-          <div class="big">${fmt(r.totalSummary.customerRemaining)}</div>
-          <div class="small">kalan</div>
-        </div>
-      </div>`).join('');
+    html += activeCampaigns.map((r) => campaignCardHtml({
+      campaign: r.campaign,
+      summary: r.summary,
+      active: r.active,
+      clientName: r.clientName,
+      mediaByType: agg.groupMediaByType(r.media)
+    })).join('');
   }
 
   setContent(html);
