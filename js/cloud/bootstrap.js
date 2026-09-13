@@ -19,8 +19,8 @@ import { setDbMode, getDbMode } from './db-router.js';
 import { watchAuthState, logIn, logOut, authErrorMessage } from './auth.js';
 import { countLocalRecords, cloudWorkspaceIsEmpty, migrateLocalToCloud } from './migrate.js';
 import { isAdmin, setLocalModeAdmin, loadAdminStatus, getTeamAdmins, setTeamAdmins } from './team.js';
-import { openSheet, closeSheet } from '../ui.js';
-import { toast, confirmAction, escapeHtml, jsAttr } from '../util.js';
+import { openSheet, closeSheet, confirmDialog } from '../ui.js';
+import { toast, escapeHtml, jsAttr } from '../util.js';
 import { icon } from '../icons.js';
 
 export function isCloudActive() {
@@ -88,9 +88,10 @@ async function offerMigrationIfNeeded() {
   try {
     const [localCount, cloudEmpty] = await Promise.all([countLocalRecords(), cloudWorkspaceIsEmpty()]);
     if (localCount === 0 || !cloudEmpty) return;
-    const ok = confirmAction(
+    const ok = await confirmDialog(
       `Bu cihazda ${localCount} kayıt (müşteri, kampanya, tahsilat, ödeme, çek vb.) var ve ortak buluta henüz hiçbir şey girilmemiş. ` +
-      `Bu cihazdaki verileri ortak alana aktarayım mı? (Bu, sadece bir kez ve tek yönlü yapılır — buluta kopyalanır, cihazdan silinmez.)`
+      `Bu cihazdaki verileri ortak alana aktarayım mı? (Bu, sadece bir kez ve tek yönlü yapılır — buluta kopyalanır, cihazdan silinmez.)`,
+      { okLabel: 'Evet, Aktar', danger: false }
     );
     if (!ok) return;
     toast('Veriler buluta aktarılıyor…', 'success');
@@ -218,7 +219,7 @@ export async function addTeamAdmin() {
 }
 
 export async function removeTeamAdmin(email) {
-  if (!confirmAction(`${email} adresini admin listesinden çıkarmak istiyor musun?`)) return;
+  if (!(await confirmDialog(`${email} adresini admin listesinden çıkarmak istiyor musun?`))) return;
   const admins = await getTeamAdmins();
   await setTeamAdmins(admins.filter((e) => e !== email));
   await loadAdminStatus();
