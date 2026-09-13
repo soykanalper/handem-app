@@ -167,6 +167,7 @@ a{ color:inherit; }
 .campaign-card.active{ border-left-color:var(--green); }
 .campaign-card.passive{ border-left-color:var(--ink-faint); }
 .cc-top{ display:flex; justify-content:space-between; align-items:flex-start; gap:8px; cursor:pointer; }
+.cc-client{ font-size:var(--fs-2); color:var(--ink-soft); font-weight:var(--fw-semibold); margin-bottom:1px; }
 .cc-name{ font-size:var(--fs-6); font-weight:var(--fw-bold); }
 .cc-product{ font-size:var(--fs-3); color:var(--ink-soft); margin-top:1px; }
 .cc-dates{ font-size:var(--fs-1); color:var(--ink-soft); font-family:var(--font-mono); text-align:right; line-height:1.5; white-space:nowrap; flex-shrink:0; }
