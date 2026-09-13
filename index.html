@@ -54,6 +54,15 @@
   <div class="sheet" id="sheet"></div>
 </div>
 
+<!-- §confirm-fix: dedicated in-app confirm dialog, kept separate from the
+     generic bottom-sheet overlay/#sheet above so it can stack safely on top
+     of an already-open sheet (e.g. deleting a tahsilat from inside its own
+     edit sheet) without destroying that sheet's in-progress form state. See
+     js/ui.js's confirmDialog() for why this replaces window.confirm(). -->
+<div class="confirm-overlay" id="confirmOverlay">
+  <div class="confirm-box" id="confirmBox"></div>
+</div>
+
 <!-- fullscreen photo lightbox -->
 <div class="lightbox" id="lightbox">
   <button class="lightbox-close" id="lightboxClose">✕</button>
@@ -65,6 +74,11 @@
 
 <!-- due-date alert banner -->
 <div class="alert-banner" id="alertBanner"></div>
+
+<!-- §sw-reload-fix: "new version available" banner — see js/app.js's
+     showUpdateBanner(). Reloading only ever happens when the user taps
+     "Yenile" here; the app never reloads itself automatically. -->
+<div class="update-banner" id="updateBanner"></div>
 
 <!-- hidden file inputs for photo capture -->
 <input type="file" accept="image/*" capture="environment" id="cameraInput" style="display:none">
