@@ -50,7 +50,7 @@ export async function renderFinanceCustomerList() {
   let html = tabStrip('customer');
   html += `
     <div class="summary-strip">
-      <div class="si"><div class="label">Toplam Alacak</div><div class="value">${fmtN(totals.receivable)}</div></div>
+      <div class="si"><div class="label">Toplam Alacak (KDV Dahil)</div><div class="value">${fmtN(totals.receivable)}</div></div>
       <div class="si green"><div class="label">Tahsil Edilen</div><div class="value">${fmtN(totals.collected)}</div></div>
       <div class="si red"><div class="label">Kalan</div><div class="value">${fmtN(totals.remaining)}</div></div>
     </div>
@@ -64,7 +64,7 @@ export async function renderFinanceCustomerList() {
         ${avatarHtml(c.client.name)}
         <div class="info">
           <div class="name">${escapeHtml(c.client.name)}</div>
-          <div class="sub">Alacak ${fmtN(c.totalSummary.customerReceivable)} · Tahsil ${fmtN(c.totalSummary.customerCollected)}</div>
+          <div class="sub">Alacak (KDV Dahil) ${fmtN(c.totalSummary.customerReceivable)} · Tahsil ${fmtN(c.totalSummary.customerCollected)}</div>
         </div>
         <div class="right-col">
           <div class="big">${fmt(c.totalSummary.customerRemaining)}</div>
@@ -103,12 +103,12 @@ function mediaTypeCardHtml(t) {
         <div class="chev">${icon('chevronRight', { size: 16 })}</div>
       </div>
       <div class="mtype-grid"${isAdmin() ? '' : ' style="grid-template-columns:1fr;"'}>
-        ${isAdmin() ? `<div class="fi"><span class="label">Alış</span><span class="value">${fmtN(t.totalPurchase)}</span></div>` : ''}
-        <div class="fi"><span class="label">Satış</span><span class="value">${fmtN(t.totalSales)}</span></div>
-        ${isAdmin() ? `<div class="fi amber"><span class="label">Ristorno</span><span class="value">${fmtN(t.totalRistorno)}</span></div>` : ''}
+        ${isAdmin() ? `<div class="fi"><span class="label">Alış (KDV Hariç)</span><span class="value">${fmtN(t.totalPurchase)}</span></div>` : ''}
+        <div class="fi"><span class="label">Satış (KDV Hariç)</span><span class="value">${fmtN(t.totalSales)}</span></div>
+        ${isAdmin() ? `<div class="fi amber"><span class="label">Ristorno (KDV Hariç)</span><span class="value">${fmtN(t.totalRistorno)}</span></div>` : ''}
       </div>
       <div class="mtype-grid" style="margin-top:6px;">
-        <div class="fi"><span class="label">Borç</span><span class="value">${fmtN(t.totalNetPayable)}</span></div>
+        <div class="fi"><span class="label">Borç (KDV Dahil)</span><span class="value">${fmtN(t.totalNetPayable)}</span></div>
         <div class="fi"><span class="label">Ödenen</span><span class="value">${fmtN(t.totalPaid)}</span></div>
         <div class="fi red"><span class="label">Kalan</span><span class="value">${fmtN(t.totalRemaining)}</span></div>
       </div>
@@ -125,7 +125,7 @@ async function vendorHierarchyBody() {
 
   let html = `
     <div class="summary-strip">
-      <div class="si"><div class="label">Toplam Borç</div><div class="value">${fmtN(totals.debt)}</div></div>
+      <div class="si"><div class="label">Toplam Borç (KDV Dahil)</div><div class="value">${fmtN(totals.debt)}</div></div>
       <div class="si green"><div class="label">Ödenen</div><div class="value">${fmtN(totals.paid)}</div></div>
       <div class="si red"><div class="label">Kalan</div><div class="value">${fmtN(totals.remaining)}</div></div>
     </div>
@@ -213,7 +213,7 @@ export async function renderFinanceVendorList() {
   let html = tabStrip('mecra');
   html += `
     <div class="summary-strip">
-      <div class="si"><div class="label">Toplam Borç</div><div class="value">${fmtN(totals.debt)}</div></div>
+      <div class="si"><div class="label">Toplam Borç (KDV Dahil)</div><div class="value">${fmtN(totals.debt)}</div></div>
       <div class="si green"><div class="label">Ödenen</div><div class="value">${fmtN(totals.paid)}</div></div>
       <div class="si red"><div class="label">Kalan</div><div class="value">${fmtN(totals.remaining)}</div></div>
     </div>
@@ -227,7 +227,7 @@ export async function renderFinanceVendorList() {
         ${avatarHtml(v.vendor)}
         <div class="info">
           <div class="name">${escapeHtml(v.vendor)}</div>
-          <div class="sub">Borç ${fmtN(v.totalNetPayable)} · Ödenen ${fmtN(v.totalPaid)}${isAdmin() ? ` · Kâr ${fmtN(v.totalProfit)}` : ''}</div>
+          <div class="sub">Borç (KDV Dahil) ${fmtN(v.totalNetPayable)} · Ödenen ${fmtN(v.totalPaid)}${isAdmin() ? ` · Kâr (KDV Hariç) ${fmtN(v.totalProfit)}` : ''}</div>
         </div>
         <div class="right-col">
           <div class="big">${fmt(v.totalRemaining)}</div>
@@ -264,9 +264,9 @@ export async function renderMediaTypeDetail({ mediaType }) {
   if (t) {
     html += `
       <div class="summary-strip">
-        <div class="si"><div class="label">Alış</div><div class="value">${fmtN(t.totalPurchase)}</div></div>
-        <div class="si"><div class="label">Satış</div><div class="value">${fmtN(t.totalSales)}</div></div>
-        <div class="si amber"><div class="label">Ristorno</div><div class="value">${fmtN(t.totalRistorno)}</div></div>
+        <div class="si"><div class="label">Alış (KDV Hariç)</div><div class="value">${fmtN(t.totalPurchase)}</div></div>
+        <div class="si"><div class="label">Satış (KDV Hariç)</div><div class="value">${fmtN(t.totalSales)}</div></div>
+        <div class="si amber"><div class="label">Ristorno (KDV Hariç)</div><div class="value">${fmtN(t.totalRistorno)}</div></div>
       </div>
       <div class="summary-strip">
         <div class="si"><div class="label">Borç (KDV Dahil)</div><div class="value">${fmtN(t.totalNetPayable)}</div></div>
@@ -286,7 +286,7 @@ export async function renderMediaTypeDetail({ mediaType }) {
         ${avatarHtml(v.vendor)}
         <div class="info">
           <div class="name">${escapeHtml(v.vendor)}</div>
-          <div class="sub">Borç ${fmtN(v.totalNetPayable)} · Ödenen ${fmtN(v.totalPaid)}${isAdmin() ? ` · Kâr ${fmtN(v.totalProfit)}` : ''}</div>
+          <div class="sub">Borç (KDV Dahil) ${fmtN(v.totalNetPayable)} · Ödenen ${fmtN(v.totalPaid)}${isAdmin() ? ` · Kâr (KDV Hariç) ${fmtN(v.totalProfit)}` : ''}</div>
         </div>
         <div class="right-col">
           <div class="big">${fmt(v.totalRemaining)}</div>
@@ -325,19 +325,19 @@ export async function renderFinanceVendorDetail({ vendor }) {
   // net payable/paid/remaining/profit.
   html += isAdmin() ? `
     <div class="summary-strip">
-      <div class="si"><div class="label">Alış</div><div class="value">${fmtN(data.totalPurchase)}</div></div>
-      <div class="si"><div class="label">Satış</div><div class="value">${fmtN(data.totalSales)}</div></div>
-      <div class="si amber"><div class="label">Ristorno</div><div class="value">${fmtN(data.totalRistorno)}</div></div>
+      <div class="si"><div class="label">Alış (KDV Hariç)</div><div class="value">${fmtN(data.totalPurchase)}</div></div>
+      <div class="si"><div class="label">Satış (KDV Hariç)</div><div class="value">${fmtN(data.totalSales)}</div></div>
+      <div class="si amber"><div class="label">Ristorno (KDV Hariç)</div><div class="value">${fmtN(data.totalRistorno)}</div></div>
     </div>
     <div class="summary-strip cols4">
       <div class="si"><div class="label">Borç (KDV Dahil)</div><div class="value">${fmtN(data.totalNetPayable)}</div></div>
       <div class="si green"><div class="label">Ödenen</div><div class="value">${fmtN(data.totalPaid)}</div></div>
       <div class="si red"><div class="label">Kalan</div><div class="value">${fmtN(data.totalRemaining)}</div></div>
-      <div class="si green"><div class="label">Kâr</div><div class="value">${fmtN(data.totalProfit)}</div></div>
+      <div class="si green"><div class="label">Kâr (KDV Hariç)</div><div class="value">${fmtN(data.totalProfit)}</div></div>
     </div>
   ` : `
     <div class="summary-strip cols4">
-      <div class="si"><div class="label">Satış</div><div class="value">${fmtN(data.totalSales)}</div></div>
+      <div class="si"><div class="label">Satış (KDV Hariç)</div><div class="value">${fmtN(data.totalSales)}</div></div>
       <div class="si"><div class="label">Borç (KDV Dahil)</div><div class="value">${fmtN(data.totalNetPayable)}</div></div>
       <div class="si green"><div class="label">Ödenen</div><div class="value">${fmtN(data.totalPaid)}</div></div>
       <div class="si red"><div class="label">Kalan</div><div class="value">${fmtN(data.totalRemaining)}</div></div>
@@ -361,13 +361,13 @@ export async function renderFinanceVendorDetail({ vendor }) {
         <div class="detail-row"><span class="k">Ürün</span><span class="v">${escapeHtml(c.campaign.productName || '—')}</span></div>
         <div class="detail-row"><span class="k">Mecra</span><span class="v">${escapeHtml((c.mediaTypesInCampaign || []).join(', '))}</span></div>
         <div class="detail-divider"></div>
-        ${isAdmin() ? `<div class="detail-row"><span class="k">Alış</span><span class="v">${fmt(c.purchase)}</span></div>` : ''}
-        <div class="detail-row"><span class="k">Satış</span><span class="v">${fmt(c.sales)}</span></div>
-        ${isAdmin() ? `<div class="detail-row amber"><span class="k">Ristorno</span><span class="v">${fmt(c.ristorno)}</span></div>` : ''}
+        ${isAdmin() ? `<div class="detail-row"><span class="k">Alış (KDV Hariç)</span><span class="v">${fmt(c.purchase)}</span></div>` : ''}
+        <div class="detail-row"><span class="k">Satış (KDV Hariç)</span><span class="v">${fmt(c.sales)}</span></div>
+        ${isAdmin() ? `<div class="detail-row amber"><span class="k">Ristorno (KDV Hariç)</span><span class="v">${fmt(c.ristorno)}</span></div>` : ''}
         <div class="detail-row"><span class="k">Ödenecek (KDV Dahil)</span><span class="v">${fmt(c.netPayable)}</span></div>
         <div class="detail-row green"><span class="k">Ödenen</span><span class="v">${fmt(c.paid)}</span></div>
         <div class="detail-row red"><span class="k">Kalan</span><span class="v">${fmt(c.remaining)}</span></div>
-        ${isAdmin() ? `<div class="detail-row green"><span class="k">Kâr</span><span class="v">${fmt(c.profit)}</span></div>` : ''}
+        ${isAdmin() ? `<div class="detail-row green"><span class="k">Kâr (KDV Hariç)</span><span class="v">${fmt(c.profit)}</span></div>` : ''}
       </div>
     `).join('');
   }

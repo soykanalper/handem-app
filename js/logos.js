@@ -2,7 +2,7 @@
 // logos.js — optional real-brand logo lookup for avatarHtml() (components.js).
 // A curated set of 31 logos for the müşteri/yüklenici names this workspace
 // actually uses (fetched once, cropped/padded to a consistent white-card
-// look — see icons/logos/*.png). Client/vendor names are free text the user
+// look — see icons/*.png, one file per key below). Client/vendor names are free text the user
 // types into forms, so matching is normalized (case + Turkish characters
 // stripped) and tolerant of extra words ("Eskidji Bazaar" still matches the
 // "eskidji" key) rather than requiring an exact string. Any name with no
@@ -46,7 +46,11 @@ export function logoForName(name) {
   for (const key of SORTED_KEYS) {
     if (n === key || n.includes(key)) {
       const file = FILE_OVERRIDES[key] || key;
-      return `icons/logos/${file}.png`;
+      // §takip-fix: dosyalar GitHub'a icons/logos/ yerine doğrudan icons/
+      // altına düz olarak yüklendi (tarayıcı klasör sürüklemesini tam
+      // desteklemedi) — koddaki yolu gerçek konuma göre düzelttik, tekrar
+      // klasör taşımaya gerek kalmasın diye.
+      return `icons/${file}.png`;
     }
   }
   return null;

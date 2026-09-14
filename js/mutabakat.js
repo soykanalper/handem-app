@@ -52,11 +52,11 @@ export async function buildCustomerMutabakatText(clientId) {
       const name = c.campaign.name || c.campaign.productName || 'Kampanya';
       text += `\n${name}\n`;
       text += `Dönem: ${formatDate(c.campaign.startDate)} – ${formatDate(c.campaign.endDate)}\n`;
-      text += `Satış: ${fmt(c.summary.totalSales)}\n`;
+      text += `Satış (KDV Hariç): ${fmt(c.summary.totalSales)}\n`;
       // §roles: ajans ücreti de mahrem sayılıyor (bkz. components.js/screens.js
       // aynı alanı admin-only gösteriyor) — personel bu metni gönderebilir ama
       // bu satırı göremez.
-      if (calc.hasAgencyFee(c.campaign) && isAdmin()) text += `Ajans Bedeli: ${fmt(c.summary.agencyFee)}\n`;
+      if (calc.hasAgencyFee(c.campaign) && isAdmin()) text += `Ajans Bedeli (KDV Hariç): ${fmt(c.summary.agencyFee)}\n`;
       // §kdv-fix: bu tutar artık KDV dahil — hem müşteriye giden metinde hem
       // dahili görünümde bunu her zaman açıkça belirtiyoruz.
       text += `Toplam Alacak (KDV Dahil): ${fmt(c.summary.customerReceivable)}\n`;
@@ -113,8 +113,8 @@ export async function buildVendorMutabakatText(vendorName) {
       text += `Dönem: ${formatDate(c.campaign && c.campaign.startDate)} – ${formatDate(c.campaign && c.campaign.endDate)}\n`;
       // §roles: Alış/Ristorno mahrem — personel bu metni oluşturup
       // gönderebilir ama bu satırları göremez/gönderemez (bkz. cloud/team.js).
-      if (isAdmin()) text += `Alış: ${fmt(c.purchase)}\n`;
-      if (isAdmin()) text += `Ristorno: ${fmt(c.ristorno)}\n`;
+      if (isAdmin()) text += `Alış (KDV Hariç): ${fmt(c.purchase)}\n`;
+      if (isAdmin()) text += `Ristorno (KDV Hariç): ${fmt(c.ristorno)}\n`;
       // §kdv-fix: "Net Ödenecek" ismi KDV hariç bir rakamı çağrıştırıyordu ama
       // buradaki tutar (c.netPayable / vendorGroupNetPayable) artık KDV dahil
       // gerçek borç — ismi buna göre netleştirildi.

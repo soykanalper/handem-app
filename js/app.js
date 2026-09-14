@@ -51,6 +51,7 @@ const ROUTES = [
   ['/customers', screens.renderCustomers],
   ['/customers/:clientId', screens.renderClientDetail],
   ['/customers/:clientId/products/:productId', screens.renderProductDetail],
+  ['/campaigns/past', screens.renderPastCampaigns],
   ['/campaigns/:campaignId', screens.renderCampaignDetail],
   ['/media/:mediaId', screens.renderMediaDetail],
   ['/mecra', finance.renderMecraHome],

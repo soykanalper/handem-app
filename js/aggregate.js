@@ -96,6 +96,23 @@ export function activeCampaignsFromClients(clients) {
   return rows;
 }
 
+// §gecmis-kampanyalar: activeCampaignsFromClients'in aynası — bu sefer PASİF
+// (bitiş tarihi geçmiş) kampanyalar, en son biten en üstte. Ana Sayfa'daki
+// "Geçmiş Kampanyalar" butonuyla açılan ayrı sayfa için; aynı `clients`
+// verisini (getBusinessOverview() zaten çekmiş) yeniden kullanır, tekrar
+// sorgu atmaz.
+export function pastCampaignsFromClients(clients) {
+  const rows = [];
+  clients.forEach(({ client, campaigns }) => {
+    campaigns.forEach((c) => {
+      if (c.active) return;
+      rows.push({ campaign: c.campaign, clientName: client.name, media: c.media, summary: c.summary, active: false });
+    });
+  });
+  rows.sort((a, b) => (b.campaign.endDate || '').localeCompare(a.campaign.endDate || ''));
+  return rows;
+}
+
 export async function getProductCampaignCount(productId) {
   const campaigns = await repo.getCampaignsForProduct(productId);
   return campaigns.length;

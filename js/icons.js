@@ -37,7 +37,8 @@ const PATHS = {
   sync: '<path d="M20 11A8 8 0 0 0 6.3 6.3L4 8.6"/><path d="M4 4v4.6h4.6"/><path d="M4 13a8 8 0 0 0 13.7 4.7L20 15.4"/><path d="M20 20v-4.6h-4.6"/>',
   arrowDownCircle: '<circle cx="12" cy="12" r="9"/><path d="M12 7.5v8M8.5 12l3.5 3.5L15.5 12"/>',
   arrowUpCircle: '<circle cx="12" cy="12" r="9"/><path d="M12 16.5v-8M8.5 12l3.5-3.5L15.5 12"/>',
-  bell: '<path d="M18 8.3a6 6 0 0 0-12 0c0 6.7-2.7 8.6-2.7 8.6h17.4s-2.7-1.9-2.7-8.6"/><path d="M13.7 20.7a2 2 0 0 1-3.4 0"/>'
+  bell: '<path d="M18 8.3a6 6 0 0 0-12 0c0 6.7-2.7 8.6-2.7 8.6h17.4s-2.7-1.9-2.7-8.6"/><path d="M13.7 20.7a2 2 0 0 1-3.4 0"/>',
+  archive: '<rect x="3.3" y="4" width="17.4" height="4.2" rx="1.2"/><path d="M4.6 8.2v10a1.4 1.4 0 0 0 1.4 1.4h12a1.4 1.4 0 0 0 1.4-1.4v-10"/><path d="M10 12.4h4"/>'
 };
 
 export function icon(name, opts = {}) {

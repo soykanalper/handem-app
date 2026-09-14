@@ -75,9 +75,10 @@ export function mediaRowHtml(media, group = {}) {
         <div class="mr-vendor"><span onclick="event.stopPropagation();H.goto('/finance/vendor/${encodeURIComponent(media.vendor)}')" style="cursor:pointer;">${escapeHtml(media.vendor)}</span></div>
         <div class="mr-work"><span onclick="event.stopPropagation();H.goto('/finance/vendor/t/${encodeURIComponent(media.mediaType)}')" style="cursor:pointer;">${escapeHtml(media.mediaType)}</span> · ${escapeHtml(media.workType)}</div>
       </div>
-      <div style="display:flex;gap:4px;">
+      <div style="display:flex;gap:4px;align-items:center;">
         ${calc.isTV(media.mediaType) ? '<span class="chip amber">TV</span>' : ''}
         ${vatBadge(media.vatRate)}
+        <button class="icon-btn" style="width:26px;height:26px;" onclick="event.stopPropagation();H.openMediaForm('${media.campaignId}','${media.id}')">${icon('pencil', { size: 13 })}</button>
       </div>
     </div>
     <div class="mr-grid"${isAdmin() ? '' : ' style="grid-template-columns:1fr;"'}>
@@ -87,7 +88,7 @@ export function mediaRowHtml(media, group = {}) {
       <div class="fi amber"><span class="label">Ristorno</span><span class="value">${fmtN(ristorno)}</span></div>` : ''}
     </div>
     <div class="mr-grid" style="margin-top:4px;">
-      <div class="fi"><span class="label">Net Ödenecek</span><span class="value">${fmtN(net)}</span></div>
+      <div class="fi"><span class="label">Net Ödenecek (KDV Hariç)</span><span class="value">${fmtN(net)}</span></div>
       <div class="fi"><span class="label">Ödenen${group.shared ? ' (grup)' : ''}</span><span class="value">${groupPaid != null ? fmtN(groupPaid) : '—'}</span></div>
       <div class="fi"><span class="label">Kalan${group.shared ? ' (grup)' : ''}</span><span class="value">${groupRemaining != null ? fmtN(groupRemaining) : '—'}</span></div>
     </div>

@@ -55,22 +55,26 @@ export async function renderHome() {
   // §roles: admin görür alış/ristorno/kâr — personel için boş sütunlarla
   // dörtlü bir ızgara bırakmak yerine tek, anlamlı bir özet şeridi (satış +
   // tahsilat durumu) gösteriyoruz.
+  // §kdv-label: her toplamın KDV dahil mi hariç mi olduğu artık her yerde
+  // açıkça yazıyor — Alış/Satış/Ristorno/Kâr hep KDV HARİÇ (net) rakamlardır,
+  // Tahsilat rakamları tahsil edilen gerçek nakittir (kendi başına hariç/dahil
+  // değildir), Kalan Tahsilat ise KDV DAHİL alacak üzerinden hesaplanır.
   let html = isAdmin() ? `
     <div class="summary-strip cols4 hero">
-      <div class="si"><div class="label">Toplam Alış</div><div class="value">${fmtN(totals.totalPurchase)}</div></div>
-      <div class="si"><div class="label">Toplam Satış</div><div class="value">${fmtN(totals.totalSales)}</div></div>
-      <div class="si amber"><div class="label">Toplam Ristorno</div><div class="value">${fmtN(totals.totalRistorno)}</div></div>
-      <div class="si profit"><div class="label">Toplam Kâr</div><div class="value">${fmtN(totals.campaignProfit)}</div></div>
+      <div class="si"><div class="label">Toplam Alış (KDV Hariç)</div><div class="value">${fmtN(totals.totalPurchase)}</div></div>
+      <div class="si"><div class="label">Toplam Satış (KDV Hariç)</div><div class="value">${fmtN(totals.totalSales)}</div></div>
+      <div class="si amber"><div class="label">Toplam Ristorno (KDV Hariç)</div><div class="value">${fmtN(totals.totalRistorno)}</div></div>
+      <div class="si profit"><div class="label">Toplam Kâr (KDV Hariç)</div><div class="value">${fmtN(totals.campaignProfit)}</div></div>
     </div>
     <div class="summary-strip cols2 hero">
       <div class="si"><div class="label">Toplam Tahsilat</div><div class="value">${fmtN(totals.customerCollected)}</div></div>
-      <div class="si red"><div class="label">Kalan Tahsilat</div><div class="value">${fmtN(totals.customerRemaining)}</div></div>
+      <div class="si red"><div class="label">Kalan Tahsilat (KDV Dahil)</div><div class="value">${fmtN(totals.customerRemaining)}</div></div>
     </div>
   ` : `
     <div class="summary-strip hero">
-      <div class="si"><div class="label">Toplam Satış</div><div class="value">${fmtN(totals.totalSales)}</div></div>
+      <div class="si"><div class="label">Toplam Satış (KDV Hariç)</div><div class="value">${fmtN(totals.totalSales)}</div></div>
       <div class="si"><div class="label">Toplam Tahsilat</div><div class="value">${fmtN(totals.customerCollected)}</div></div>
-      <div class="si red"><div class="label">Kalan Tahsilat</div><div class="value">${fmtN(totals.customerRemaining)}</div></div>
+      <div class="si red"><div class="label">Kalan Tahsilat (KDV Dahil)</div><div class="value">${fmtN(totals.customerRemaining)}</div></div>
     </div>
   `;
   if (totals.customerExcess > 0) {
@@ -83,12 +87,49 @@ export async function renderHome() {
   // doğrudan cevap versin diye. Müşteri bazlı gezinme "Müşteriler" alt nav
   // sekmesinde aynen duruyor, hiçbir sayfa yapısı değişmedi — sadece burası.
   const activeCampaigns = agg.activeCampaignsFromClients(clients);
-  html += `<div class="section-title"><span class="icon-inline">${icon('megaphone', { size: 13 })} Aktif Kampanyalar · en son başlayan üstte</span></div>`;
+  html += `<div class="section-title"><span class="icon-inline">${icon('megaphone', { size: 13 })} Aktif Kampanyalar · en son başlayan üstte</span><span class="link" onclick="H.goto('/campaigns/past')">${icon('archive', { size: 12, className: 'icon-inline' })} Geçmiş</span></div>`;
 
   if (activeCampaigns.length === 0) {
     html += emptyState(icon('megaphone', { size: 32 }), 'Aktif kampanya yok', 'Bir müşteriye kampanya ekleyince burada görünecek.');
   } else {
     html += activeCampaigns.map((r) => campaignCardHtml({
+      campaign: r.campaign,
+      summary: r.summary,
+      active: r.active,
+      clientName: r.clientName,
+      mediaByType: agg.groupMediaByType(r.media)
+    })).join('');
+  }
+
+  setContent(html);
+}
+
+// ============================================================================
+// GEÇMİŞ KAMPANYALAR — Ana Sayfa'daki "Geçmiş Kampanyalar" butonundan açılır:
+// bitiş tarihi geçmiş (artık pasif) kampanyaların tüm müşteriler genelinde
+// tek listesi, en son biten en üstte — Aktif Kampanyalar'ın aynası. Bir
+// karta dokununca zaten var olan Kampanya Detayı'na gider; orada artık
+// ödeme/tahsilat geçmişi de tam olarak görülüp düzenlenebiliyor.
+// ============================================================================
+export async function renderPastCampaigns() {
+  setActiveNav('home');
+  setFabVisible(false);
+  setTopbar(`
+    <div class="left">
+      <button class="back" onclick="H.goto('/')">${icon('chevronLeft')}</button>
+      <div><h1>Geçmiş Kampanyalar</h1><div class="sub">Bitiş tarihi geçmiş kampanyalar · en son biten üstte</div></div>
+    </div>
+  `);
+  setContent(`<div class="list-loading">Yükleniyor…</div>`);
+
+  const { clients } = await agg.getBusinessOverview();
+  const pastCampaigns = agg.pastCampaignsFromClients(clients);
+
+  let html = '';
+  if (pastCampaigns.length === 0) {
+    html += emptyState(icon('archive', { size: 32 }), 'Geçmiş kampanya yok', 'Bitiş tarihi geçen bir kampanya olunca burada görünecek.');
+  } else {
+    html += pastCampaigns.map((r) => campaignCardHtml({
       campaign: r.campaign,
       summary: r.summary,
       active: r.active,
@@ -239,7 +280,7 @@ export async function renderClientDetail({ clientId }) {
   const s = aggData.totalSummary;
   let html = `
     <div class="summary-strip">
-      <div class="si"><div class="label">Alacak</div><div class="value">${fmtN(s.customerReceivable)}</div></div>
+      <div class="si"><div class="label">Alacak (KDV Dahil)</div><div class="value">${fmtN(s.customerReceivable)}</div></div>
       <div class="si green"><div class="label">Tahsil</div><div class="value">${fmtN(s.customerCollected)}</div></div>
       <div class="si red"><div class="label">Kalan</div><div class="value">${fmtN(s.customerRemaining)}</div></div>
     </div>
@@ -289,7 +330,7 @@ export async function renderClientDetail({ clientId }) {
     html += aggData.campaigns.map((c) => `
       <div class="detail-card" style="cursor:pointer;" onclick="H.goto('/campaigns/${c.campaign.id}')">
         <div class="detail-row"><span class="k" style="font-weight:800;color:var(--ink);">${escapeHtml(c.campaign.name || c.campaign.productName)}</span><span class="v">${c.active ? '<span class="chip green">Aktif</span>' : '<span class="chip neutral">Pasif</span>'}</span></div>
-        <div class="detail-row"><span class="k">Alacak</span><span class="v">${fmt(c.summary.customerReceivable)}</span></div>
+        <div class="detail-row"><span class="k">Alacak (KDV Dahil)</span><span class="v">${fmt(c.summary.customerReceivable)}</span></div>
         <div class="detail-row green"><span class="k">Tahsil</span><span class="v">${fmt(c.summary.customerCollected)}</span></div>
         <div class="detail-row red"><span class="k">Kalan</span><span class="v">${fmt(c.summary.customerRemaining)}</span></div>
       </div>
@@ -414,7 +455,7 @@ export async function renderCampaignDetail({ campaignId }) {
   setActiveNav('customers');
   const full = await agg.getCampaignFull(campaignId);
   if (!full) { navigate('/customers'); return; }
-  const { campaign, media, summary, payments } = full;
+  const { campaign, media, summary, payments, collections } = full;
   const displayName = campaign.name || campaign.productName || 'Kampanya';
   const active = calc.campaignIsActive(campaign, todayISO());
 
@@ -449,7 +490,7 @@ export async function renderCampaignDetail({ campaignId }) {
     html += `
       <div class="profit-banner">
         <div>
-          <div class="label">Toplam Kâr</div>
+          <div class="label">Toplam Kâr (KDV Hariç)</div>
           <div class="value">${fmt(summary.campaignProfit)}</div>
         </div>
         <div class="emoji">${icon('trendingUp', { size: 30 })}</div>
@@ -476,12 +517,12 @@ export async function renderCampaignDetail({ campaignId }) {
 
     <div class="detail-card">
       <h3>Genel Finansal Özet</h3>
-      <div class="detail-row"><span class="k">Toplam Satış</span><span class="v">${fmt(summary.totalSales)}</span></div>
+      <div class="detail-row"><span class="k">Toplam Satış (KDV Hariç)</span><span class="v">${fmt(summary.totalSales)}</span></div>
       ${isAdmin() ? `
-      <div class="detail-row"><span class="k">Toplam Alış</span><span class="v">${fmt(summary.totalPurchase)}</span></div>
-      <div class="detail-row amber"><span class="k">Toplam Ristorno</span><span class="v">${fmt(summary.totalRistorno)}</span></div>
+      <div class="detail-row"><span class="k">Toplam Alış (KDV Hariç)</span><span class="v">${fmt(summary.totalPurchase)}</span></div>
+      <div class="detail-row amber"><span class="k">Toplam Ristorno (KDV Hariç)</span><span class="v">${fmt(summary.totalRistorno)}</span></div>
       ${calc.hasAgencyFee(campaign) ? vatDetailRow('Ajans Ücreti', summary.agencyFee, campaign.agencyFeeVatRate, 'primary') : ''}
-      <div class="detail-row total green"><span class="k">Toplam Kâr</span><span class="v">${fmt(summary.campaignProfit)}</span></div>` : ''}
+      <div class="detail-row total green"><span class="k">Toplam Kâr (KDV Hariç)</span><span class="v">${fmt(summary.campaignProfit)}</span></div>` : ''}
     </div>
 
     <div class="detail-card">
@@ -522,6 +563,37 @@ export async function renderCampaignDetail({ campaignId }) {
       groupByVendor[v] = { paid, remaining, shared: vendorMediaCount > 1 };
     });
     html += activeMedia.map((m) => mediaRowHtml(m, groupByVendor[m.vendor])).join('');
+  }
+
+  // §duzenleme-merkezi: kampanyayla ilgili elle girilen HER ŞEY tek sayfadan
+  // düzenlenebilsin diye — daha önce burada sadece "Tahsilat Ekle"/"Ödeme
+  // Ekle" butonları vardı, var olan kayıtları görüp düzenlemek için ayrı
+  // ekranlara gitmek gerekiyordu. Artık bu kampanyaya ait her tahsilat ve
+  // ödeme burada da listeleniyor; satıra dokununca zaten var olan
+  // Tahsilat/Ödeme Detayı sayfası açılıyor (Düzenle + Sil ikisi de orada).
+  const activeCollections = (collections || []).filter((c) => !c.deleted);
+  html += `<div class="section-title">Tahsilatlar</div>`;
+  if (activeCollections.length === 0) {
+    html += emptyState(icon('banknote', { size: 32 }), 'Henüz tahsilat yok', '');
+  } else {
+    const sortedCollections = [...activeCollections].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    html += sortedCollections.map((c) => payRowHtml(c, {
+      onClick: (cc) => `H.openCollectionDetail('${cc.id}')`,
+      onDelete: (cc) => `H.deleteCollection('${cc.id}')`
+    })).join('');
+  }
+
+  const activePayments = (payments || []).filter((p) => !p.deleted);
+  html += `<div class="section-title">Ödemeler</div>`;
+  if (activePayments.length === 0) {
+    html += emptyState(icon('landmark', { size: 32 }), 'Henüz ödeme yok', '');
+  } else {
+    const sortedPayments = [...activePayments].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    html += sortedPayments.map((p) => payRowHtml(p, {
+      onClick: (pp) => `H.openPaymentDetail('${pp.id}')`,
+      showTarget: (pp) => pp.vendor,
+      onDelete: (pp) => `H.deletePayment('${pp.id}')`
+    })).join('');
   }
 
   // §73: cheques tied to this campaign, cross-visible from the Campaign page.
@@ -588,7 +660,7 @@ export async function renderMediaDetail({ mediaId }) {
       ${vatDetailRow('Satış', media.sales, media.vatRate)}
       ${isAdmin() ? `<div class="detail-row amber"><span class="k">Ristorno % / Tutar</span><span class="v">%${fmtN(media.ristornoPercent)} · ${fmt(ristorno)}</span></div>` : ''}
       ${vatDetailRow('Net Ödenecek', net, media.vatRate)}
-      ${isAdmin() ? `<div class="detail-row total green"><span class="k">Kâr</span><span class="v">${fmt(profit)}</span></div>` : ''}
+      ${isAdmin() ? `<div class="detail-row total green"><span class="k">Kâr (KDV Hariç)</span><span class="v">${fmt(profit)}</span></div>` : ''}
       ${calc.isTV(media.mediaType) && isAdmin() ? `<div class="note-box"><b>TV Ristorno Kuralı</b>Ristorno ödemeden düşülmez; yıl sonunda TV Yıllık Ristorno üzerinden tahsil edilir.</div>` : ''}
     </div>
 
