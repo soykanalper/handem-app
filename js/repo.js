@@ -3,7 +3,7 @@
 // call these instead of talking to IndexedDB directly.
 // ---------------------------------------------------------------------------
 import { dbGetAll, dbGet, dbGetByIndex, createEntity, updateEntity, softDeleteEntity } from './cloud/db-router.js';
-import { uid } from './util.js';
+import { uid, normKey } from './util.js';
 
 export const PAYMENT_TYPES = ['Nakit', 'Havale / EFT', 'Çek', 'Vadeli', 'Diğer'];
 
@@ -63,16 +63,40 @@ export const getCustomVendors = () => dbGetAll('vendors');
 export const getCustomMediaTypes = () => dbGetAll('mediaTypes');
 export const getCustomWorkTypes = () => dbGetAll('workTypes');
 
-async function addToPickList(store, name) {
+// §birlesik-yazim: `defaults` verilirse (mediaTypes/workTypes için), yeni
+// isim zaten sabit listedeki biriyle case/boşluk-duyarsız eşleşiyorsa hiç
+// özel kayıt eklenmiyor — "Açık Hava" zaten sabitte varken kullanıcı "açık
+// hava" yazıp kaydettiğinde ikinci bir kayıt olarak depoya yazılmasın diye.
+async function addToPickList(store, name, defaults) {
   const trimmed = (name || '').trim();
   if (!trimmed) return;
+  const key = normKey(trimmed);
+  if (defaults && defaults.some((d) => normKey(d) === key)) return;
   const existing = await dbGetAll(store);
-  if (existing.some((e) => e.name.toLowerCase() === trimmed.toLowerCase())) return;
+  if (existing.some((e) => normKey(e.name) === key)) return;
   await createEntity(store, { name: trimmed });
 }
 export const addVendorName = (name) => addToPickList('vendors', name);
-export const addMediaTypeName = (name) => addToPickList('mediaTypes', name);
-export const addWorkTypeName = (name) => addToPickList('workTypes', name);
+export const addMediaTypeName = (name) => addToPickList('mediaTypes', name, DEFAULT_MEDIA_TYPES);
+export const addWorkTypeName = (name) => addToPickList('workTypes', name, DEFAULT_WORK_TYPES);
+
+// §birlesik-yazim: bir ham metni (mediaType/vendor/workType), `knownNames`
+// listesinde case/boşluk-duyarsız eşleşen bir isim varsa O İSMİN KENDİ
+// YAZIMINA indirger — "atv" / "ATV " / "Atv" yazıldığında hepsi kayıtlı olan
+// tek "ATV" yazımına dönüşür. Hiçbir eşleşme yoksa (gerçekten yeni bir
+// değer) trim edilmiş haliyle olduğu gibi döner. saveMedia/quickNewCampaign/
+// saveVendorQuickAdd gibi KAYIT anında çağrılır — bundan sonra oluşan hiçbir
+// kayıt yeni bir yazım varyantı yaratmaz, hep var olan çatının altına girer.
+function toCanonical(raw, knownNames) {
+  const trimmed = (raw || '').trim();
+  if (!trimmed) return trimmed;
+  const key = normKey(trimmed);
+  const match = knownNames.find((k) => normKey(k) === key);
+  return match || trimmed;
+}
+export async function canonicalMediaType(raw) { return toCanonical(raw, await getAllMediaTypeNames()); }
+export async function canonicalWorkType(raw) { return toCanonical(raw, await getAllWorkTypeNames()); }
+export async function canonicalVendorName(raw) { return toCanonical(raw, await getAllVendorNames()); }
 
 // §kunye: mecra/yüklenici künye (şirket profili) alanları — Fatura Adresi,
 // Adres, VKN, IBAN, Kaşe fotoğrafı — bu ismin `vendors` kaydına eklenir.
@@ -93,39 +117,67 @@ export async function resolveVendorProfile(name) {
 }
 export const updateVendorProfile = (id, patch) => updateEntity('vendors', id, patch);
 
+// §birlesik-yazim: aşağıdaki üç fonksiyon (bu ve iki tür listesi) artık
+// case/boşluk-duyarsız dedup yapıyor — "ATV" ve "Atv" ya da "Açık Hava" ve
+// "açık hava" gibi geçmişte farklı yazılmış varyantlar TEK bir isim olarak
+// dönüyor (ilk görülen/sabit listedeki yazım kazanır). Bu, hem seçmeli
+// alanlardaki listeleri hem de bunlara bağlı her ekranı (Mecralar sayfası,
+// Finans, vb.) otomatik olarak düzeltiyor — hiçbir eski kayıt değiştirilmeden.
+export function dedupeNames(names) {
+  const result = [];
+  const seen = new Set();
+  names.forEach((raw) => {
+    const trimmed = (raw || '').trim();
+    if (!trimmed) return;
+    const key = normKey(trimmed);
+    if (seen.has(key)) return;
+    seen.add(key);
+    result.push(trimmed);
+  });
+  return result;
+}
+
 export async function getAllVendorNames() {
   const [custom, media] = await Promise.all([getCustomVendors(), getAllMedia()]);
-  const fromMedia = media.map((m) => m.vendor).filter(Boolean);
   const fromCustom = custom.map((v) => v.name);
-  return [...new Set([...fromCustom, ...fromMedia])].sort((a, b) => a.localeCompare(b, 'tr'));
+  const fromMedia = media.map((m) => m.vendor).filter(Boolean);
+  return dedupeNames([...fromCustom, ...fromMedia]).sort((a, b) => a.localeCompare(b, 'tr'));
 }
 
 // §yuklenici-secmeli: bir mecra türüne göre Yüklenici seçenekleri — TV/Radio
 // için küratörlü kanal listesiyle birleşik, diğer türlerde SADECE o türde
 // daha önce kullanıcının kendi elle girdiği yükleniciler (global "tüm
 // yükleniciler" listesiyle karışmasın — Açık Hava seçiliyken TV kanalları
-// çıkmasın diye).
+// çıkmasın diye). Mecra Türü karşılaştırması da normKey ile yapılıyor.
 export async function getVendorNamesForType(mediaType) {
   const media = await getAllMedia();
-  const used = [...new Set(media.filter((m) => m.mediaType === mediaType).map((m) => m.vendor).filter(Boolean))];
+  const typeKey = normKey(mediaType);
+  const used = media.filter((m) => normKey(m.mediaType) === typeKey).map((m) => m.vendor).filter(Boolean);
   let curated = [];
-  if (mediaType === 'TV') curated = TV_CHANNELS;
-  else if (mediaType === 'Radio') curated = RADIO_CHANNELS;
-  return [...new Set([...curated, ...used])].sort((a, b) => a.localeCompare(b, 'tr'));
+  if (typeKey === normKey('TV')) curated = TV_CHANNELS;
+  else if (typeKey === normKey('Radio')) curated = RADIO_CHANNELS;
+  return dedupeNames([...curated, ...used]).sort((a, b) => a.localeCompare(b, 'tr'));
+}
+
+// §is-turu-secmeli: Yüklenici'nin aynısı — bir mecra türünde bugüne kadar
+// gerçekten kullanılmış TÜM iş türlerini getirir (sabit DEFAULT_WORK_TYPES
+// listesiyle sınırlı kalmadan — "3 taneyle sınırlı kalma" talebi budur).
+// Hiç kayıt yoksa boş döner, elle yazma her zaman açık kalır.
+export async function getWorkTypeNamesForType(mediaType) {
+  const media = await getAllMedia();
+  const typeKey = normKey(mediaType);
+  const used = media.filter((m) => normKey(m.mediaType) === typeKey).map((m) => m.workType).filter(Boolean);
+  return dedupeNames(used).sort((a, b) => a.localeCompare(b, 'tr'));
 }
 
 export async function getAllMediaTypeNames() {
   const custom = await getCustomMediaTypes();
-  const set = new Set(DEFAULT_MEDIA_TYPES);
-  custom.forEach((c) => set.add(c.name));
-  return [...set];
+  return dedupeNames([...DEFAULT_MEDIA_TYPES, ...custom.map((c) => c.name)]);
 }
 
 export async function getAllWorkTypeNames() {
   const custom = await getCustomWorkTypes();
-  const set = new Set(DEFAULT_WORK_TYPES);
-  custom.forEach((c) => set.add(c.name));
-  return [...set];
+  return dedupeNames([...DEFAULT_WORK_TYPES, ...custom.map((c) => c.name)]);
 }
 
 // -------- customer collections -------------------------------------------------
@@ -139,8 +191,16 @@ export const deleteCollection = (id) => softDeleteEntity('collections', id);
 
 // -------- vendor payments -------------------------------------------------------
 export const getPaymentsForCampaign = (campaignId) => dbGetByIndex('payments', 'campaignId', campaignId);
-export const getPaymentsForVendor = (vendor) => dbGetByIndex('payments', 'vendor', vendor);
 export const getAllPayments = () => dbGetAll('payments');
+// §birlesik-yazim: IndexedDB indeksi byte-birebir eşleştirir ("ATV" ≠ "Atv")
+// — bu yüzden vendor'a göre ödeme ararken artık indeks yerine tüm ödemeler
+// çekilip normKey ile filtreleniyor, "Fatura Ekle"deki "Hangi Ödeme İçin"
+// listesinin farklı yazılmış bir yüklenici yüzünden boş gelmesini önlüyor.
+export async function getPaymentsForVendor(vendor) {
+  const all = await getAllPayments();
+  const key = normKey(vendor);
+  return all.filter((p) => normKey(p.vendor) === key);
+}
 export const getPayment = (id) => dbGet('payments', id);
 export const createPayment = (data) => createEntity('payments', data);
 export const updatePayment = (id, patch) => updateEntity('payments', id, patch);
@@ -168,11 +228,12 @@ export async function getChequesForCampaign(campaignId) {
 }
 export async function getChequesForVendor(vendor) {
   const all = await getAllCheques();
+  const key = normKey(vendor);
   // §cheque-redesign v2: a cheque's whole custody trail is a `movements`
   // array (see chequeMovements.js) — it shows up on a vendor's page if it
   // was EVER ciro edilmiş to that vendor at any point in its history, not
-  // just right now.
-  return all.filter((c) => (c.movements || []).some((m) => m.toType === 'vendor' && m.toVendor === vendor));
+  // just right now. §birlesik-yazim: normKey ile karşılaştırılıyor.
+  return all.filter((c) => (c.movements || []).some((m) => m.toType === 'vendor' && normKey(m.toVendor) === key));
 }
 
 // A received cheque is always born from exactly one Tahsilat — find it so
@@ -297,7 +358,11 @@ export async function getInvoicesForClient(clientId) {
 }
 export async function getInvoicesForVendor(vendorName) {
   const all = await getAllInvoices();
-  return all.filter((i) => i.entityType === 'vendor' && i.entityId === vendorName);
+  const key = normKey(vendorName);
+  // §birlesik-yazim: entityId burada yüklenici ADI (id değil) olarak
+  // tutuluyor — normKey ile karşılaştırılıyor ki farklı yazımla kaydedilmiş
+  // faturalar da doğru yüklenicinin altında görünsün.
+  return all.filter((i) => i.entityType === 'vendor' && normKey(i.entityId) === key);
 }
 
 // -------- randevu / toplantı ajandası ------------------------------------------

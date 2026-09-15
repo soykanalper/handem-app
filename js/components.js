@@ -285,6 +285,7 @@ export function invoiceRowHtml(inv, { onClick, onDelete } = {}) {
         ${inv.amount ? `<span>· ${fmt(inv.amount)}</span>` : ''}
         ${inv.photos && inv.photos.length ? `<span>· ${inv.photos.length} foto</span>` : ''}
         ${inv.campaignName ? `<span>· ${escapeHtml(inv.campaignName)}</span>` : ''}
+        ${inv.relatedNote ? `<span>· ${escapeHtml(inv.relatedNote)}</span>` : ''}
       </div>
     </div>
     ${onDelete ? `<button class="pay-del" onclick="event.stopPropagation();${onDelete(inv)}">${icon('x', { size: 13 })}</button>` : ''}

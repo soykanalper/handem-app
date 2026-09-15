@@ -6,7 +6,7 @@ import * as repo from './repo.js';
 import * as calc from './calc.js';
 import * as agg from './aggregate.js';
 import * as reminders from './reminders.js';
-import { fmt, fmtN, formatDate, escapeHtml, jsAttr, todayISO, hashColor, initials, toast } from './util.js';
+import { fmt, fmtN, formatDate, escapeHtml, jsAttr, todayISO, hashColor, initials, toast, normKey } from './util.js';
 import { setTopbar, setContent, setActiveNav, setFabVisible, setFabAction, navigate, goBack } from './ui.js';
 import { avatarHtml, campaignCardHtml, mediaRowHtml, payRowHtml, chequeRowHtml, reminderRowHtml, emptyState, vatDetailRow, vatBadge, kunyeCardHtml, invoiceSectionHtml } from './components.js';
 import { icon } from './icons.js';
@@ -78,7 +78,8 @@ export async function renderHome() {
     </div>
   `;
   if (totals.customerExcess > 0) {
-    html += `<div class="note-box"><b>Fazla Tahsilat</b>${fmt(totals.customerExcess)}</div>`;
+    const excessClientNames = clients.filter((c) => c.totalSummary.customerExcess > 0).map((c) => c.client.name);
+    html += `<div class="note-box"><b>Fazla Tahsilat</b>${fmt(totals.customerExcess)}${excessClientNames.length ? ` <span class="excess-who">${excessClientNames.map(escapeHtml).join(', ')}</span>` : ''}</div>`;
   }
 
   // §home-campaigns: Ana Sayfa artık müşteri listesi değil, tüm müşteriler
@@ -484,6 +485,21 @@ export async function renderCampaignDetail({ campaignId }) {
   const mediaByType = agg.groupMediaByType(media);
   const campaignCheques = await repo.getChequesForCampaign(campaign.id);
 
+  // §kime-ait: bu kampanyanın "Fazla Ödeme" toplamı birden fazla FARKLI
+  // yükleniciyi aynı anda kapsayabiliyor (bkz. calc.js §194) — o yüzden
+  // toplamın hangi yükleniciye/yüklenicilere ait olduğunu burada, yüklenici
+  // bazında ayrıca hesaplayıp aşağıda ince bir şekilde gösteriyoruz.
+  const activeMediaForExcess = media.filter((m) => !m.deleted);
+  const excessVendorKeysForCampaign = [...new Set(activeMediaForExcess.map((m) => normKey(m.vendor)))];
+  const excessVendorNamesForCampaign = excessVendorKeysForCampaign.map((vKey) => {
+    const sample = activeMediaForExcess.find((m) => normKey(m.vendor) === vKey);
+    const v = sample ? sample.vendor : '';
+    const netPayable = calc.vendorGroupNetPayable(activeMediaForExcess, v);
+    const paid = calc.vendorGroupPaid(payments, campaign.id, v);
+    const { excess } = calc.remainingAndExcess(netPayable, paid);
+    return { vendor: v, excess };
+  }).filter((x) => x.excess > 0).map((x) => x.vendor);
+
   let html = '';
 
   // §64: obvious, prominent profit — not buried in a long list of rows.
@@ -541,7 +557,7 @@ export async function renderCampaignDetail({ campaignId }) {
       <div class="detail-row"><span class="k">Toplam Mecra Borcu (KDV Dahil)</span><span class="v">${fmt(summary.totalNetPayable)}</span></div>
       <div class="detail-row green"><span class="k">Ödenen</span><span class="v">${fmt(summary.mediaPaid)}</span></div>
       <div class="detail-row red"><span class="k">Mecraya Kalan</span><span class="v">${fmt(summary.mediaRemaining)}</span></div>
-      ${summary.mediaExcess > 0 ? `<div class="detail-row amber"><span class="k">Fazla Ödeme</span><span class="v">${fmt(summary.mediaExcess)}</span></div>` : ''}
+      ${summary.mediaExcess > 0 ? `<div class="detail-row amber"><span class="k">Fazla Ödeme${excessVendorNamesForCampaign.length ? ` <span class="excess-who">${excessVendorNamesForCampaign.map(escapeHtml).join(', ')}</span>` : ''}</span><span class="v">${fmt(summary.mediaExcess)}</span></div>` : ''}
       <button class="btn small outline" style="width:100%;margin-top:10px;" onclick="H.openCampaignPaymentPicker('${campaign.clientId}','${campaign.id}')">${icon('landmark', { size: 15 })} Ödeme Ekle</button>
     </div>
 
@@ -555,16 +571,21 @@ export async function renderCampaignDetail({ campaignId }) {
     // §23/§62), not per media line — compute each vendor's group figures
     // once and pass them to every media row from that vendor.
     const activeMedia = media.filter((m) => !m.deleted);
-    const vendorNames = [...new Set(activeMedia.map((m) => m.vendor))];
-    const groupByVendor = {};
-    vendorNames.forEach((v) => {
-      const vendorMediaCount = activeMedia.filter((m) => m.vendor === v).length;
+    // §birlesik-yazim: yüklenici grupları normKey ile hesaplanıyor — aynı
+    // yüklenicinin farklı yazımlı kayıtları artık "shared" (paylaşılan ödeme
+    // grubu) sayımında da birlikte sayılıyor.
+    const vendorKeys = [...new Set(activeMedia.map((m) => normKey(m.vendor)))];
+    const groupByKey = {};
+    vendorKeys.forEach((vKey) => {
+      const sample = activeMedia.find((m) => normKey(m.vendor) === vKey);
+      const v = sample ? sample.vendor : '';
+      const vendorMediaCount = activeMedia.filter((m) => normKey(m.vendor) === vKey).length;
       const netPayable = calc.vendorGroupNetPayable(activeMedia, v);
       const paid = calc.vendorGroupPaid(payments, campaign.id, v);
       const { remaining } = calc.remainingAndExcess(netPayable, paid);
-      groupByVendor[v] = { paid, remaining, shared: vendorMediaCount > 1 };
+      groupByKey[vKey] = { paid, remaining, shared: vendorMediaCount > 1 };
     });
-    html += activeMedia.map((m) => mediaRowHtml(m, groupByVendor[m.vendor])).join('');
+    html += activeMedia.map((m) => mediaRowHtml(m, groupByKey[normKey(m.vendor)])).join('');
   }
 
   // §duzenleme-merkezi: kampanyayla ilgili elle girilen HER ŞEY tek sayfadan
@@ -625,7 +646,7 @@ export async function renderMediaDetail({ mediaId }) {
   setFabVisible(true);
   setFabAction(() => window.H.openPaymentForm({ clientId: campaign ? campaign.clientId : '', campaignId: media.campaignId, vendor: media.vendor }));
   const allMediaInCampaign = await repo.getMediaForCampaign(media.campaignId);
-  const payments = (await repo.getPaymentsForCampaign(media.campaignId)).filter((p) => p.vendor === media.vendor);
+  const payments = (await repo.getPaymentsForCampaign(media.campaignId)).filter((p) => normKey(p.vendor) === normKey(media.vendor));
 
   const ristorno = calc.mediaRistorno(media);
   const net = calc.mediaNetPayable(media);

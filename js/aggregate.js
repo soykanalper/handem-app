@@ -6,7 +6,7 @@
 // ---------------------------------------------------------------------------
 import * as repo from './repo.js';
 import * as calc from './calc.js';
-import { todayISO } from './util.js';
+import { todayISO, normKey } from './util.js';
 
 export async function getCampaignFull(campaignId) {
   const campaign = await repo.getCampaign(campaignId);
@@ -125,17 +125,22 @@ export async function getProductMediaVendorSummary(productId) {
   const campaigns = await repo.getCampaignsForProduct(productId);
   const today = todayISO();
   let activeCount = 0, passiveCount = 0;
-  const mediaTypes = new Set();
-  const vendors = new Set();
+  const mediaTypes = new Map(); // §birlesik-yazim: typeKey -> ilk görülen yazım
+  const vendors = new Map();
   const mediaLists = await Promise.all(campaigns.map((c) => repo.getMediaForCampaign(c.id)));
   campaigns.forEach((c, i) => {
     if (calc.campaignIsActive(c, today)) activeCount++; else passiveCount++;
-    mediaLists[i].forEach((m) => { mediaTypes.add(m.mediaType); vendors.add(m.vendor); });
+    mediaLists[i].forEach((m) => {
+      const tKey = normKey(m.mediaType);
+      if (tKey && !mediaTypes.has(tKey)) mediaTypes.set(tKey, (m.mediaType || '').trim());
+      const vKey = normKey(m.vendor);
+      if (vKey && !vendors.has(vKey)) vendors.set(vKey, (m.vendor || '').trim());
+    });
   });
   return {
     totalCount: campaigns.length, activeCount, passiveCount,
-    mediaTypes: [...mediaTypes].sort((a, b) => a.localeCompare(b, 'tr')),
-    vendors: [...vendors].sort((a, b) => a.localeCompare(b, 'tr'))
+    mediaTypes: [...mediaTypes.values()].sort((a, b) => a.localeCompare(b, 'tr')),
+    vendors: [...vendors.values()].sort((a, b) => a.localeCompare(b, 'tr'))
   };
 }
 
@@ -143,22 +148,29 @@ export async function getProductMediaVendorSummary(productId) {
 // the "which media/vendors are used here" summary shown first on Campaign
 // Detail (§63).
 export function groupMediaByType(mediaList) {
-  const byType = new Map();
+  // §birlesik-yazim: hem mecra türü hem yüklenici adı normKey ile gruplanıyor
+  // — farklı yazımla girilmiş aynı tür/yüklenici artık ayrı satır olarak
+  // görünmüyor. Gösterilen yazım: o grupta ilk görülen (trim'lenmiş) metin.
+  const byType = new Map(); // typeKey -> { label, vendors: Map(vendorKey -> label) }
   (mediaList || []).filter((m) => !m.deleted).forEach((m) => {
-    if (!byType.has(m.mediaType)) byType.set(m.mediaType, new Set());
-    byType.get(m.mediaType).add(m.vendor);
+    const typeKey = normKey(m.mediaType);
+    if (!byType.has(typeKey)) byType.set(typeKey, { label: (m.mediaType || '').trim(), vendors: new Map() });
+    const entry = byType.get(typeKey);
+    const vKey = normKey(m.vendor);
+    if (!entry.vendors.has(vKey)) entry.vendors.set(vKey, (m.vendor || '').trim());
   });
-  return [...byType.entries()].map(([mediaType, vendorSet]) => ({
-    mediaType, vendors: [...vendorSet].sort((a, b) => a.localeCompare(b, 'tr'))
+  return [...byType.values()].map(({ label, vendors }) => ({
+    mediaType: label, vendors: [...vendors.values()].sort((a, b) => a.localeCompare(b, 'tr'))
   })).sort((a, b) => a.mediaType.localeCompare(b.mediaType, 'tr'));
 }
 
 // -------- vendor aggregation across all campaigns ----------------------------
 export async function getVendorAggregate(vendorName) {
   const allMedia = await repo.getAllMedia();
-  const vendorMedia = allMedia.filter((m) => m.vendor === vendorName);
+  const vendorKey = normKey(vendorName);
+  const vendorMedia = allMedia.filter((m) => normKey(m.vendor) === vendorKey);
   const campaignIds = [...new Set(vendorMedia.map((m) => m.campaignId))];
-  const mediaTypes = new Set();
+  const mediaTypes = new Map(); // §birlesik-yazim: typeKey -> ilk görülen yazım
 
   // §perf: each campaign's (campaign, payments) fetch used to happen one
   // campaign at a time — parallelized here. Sets/array pushes inside a map
@@ -172,9 +184,15 @@ export async function getVendorAggregate(vendorName) {
       repo.getPaymentsForCampaign(cid)
     ]);
     const mediaInCampaign = vendorMedia.filter((m) => m.campaignId === cid);
-    mediaInCampaign.forEach((m) => mediaTypes.add(m.mediaType));
+    const typesInCampaign = new Map();
+    mediaInCampaign.forEach((m) => {
+      const tKey = normKey(m.mediaType);
+      const label = (m.mediaType || '').trim();
+      if (!mediaTypes.has(tKey)) mediaTypes.set(tKey, label);
+      if (!typesInCampaign.has(tKey)) typesInCampaign.set(tKey, label);
+    });
     const netPayable = calc.vendorGroupNetPayable(mediaInCampaign, vendorName);
-    const payments = paymentsRaw.filter((p) => !p.deleted && p.vendor === vendorName);
+    const payments = paymentsRaw.filter((p) => !p.deleted && normKey(p.vendor) === vendorKey);
     const paid = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
     const { remaining, excess } = calc.remainingAndExcess(netPayable, paid);
     const purchase = mediaInCampaign.reduce((s, m) => s + (Number(m.purchase) || 0), 0);
@@ -183,7 +201,7 @@ export async function getVendorAggregate(vendorName) {
     const profit = mediaInCampaign.reduce((s, m) => s + calc.mediaProfit(m), 0);
     return {
       campaign, media: mediaInCampaign, netPayable, paid, remaining, excess, payments,
-      purchase, sales, ristorno, profit, mediaTypesInCampaign: [...new Set(mediaInCampaign.map((m) => m.mediaType))]
+      purchase, sales, ristorno, profit, mediaTypesInCampaign: [...typesInCampaign.values()]
     };
   }));
 
@@ -199,7 +217,7 @@ export async function getVendorAggregate(vendorName) {
   const totals = calc.remainingAndExcess(totalsAgg.totalNetPayable, totalsAgg.totalPaid);
   return {
     vendor: vendorName,
-    mediaTypes: [...mediaTypes].sort((a, b) => a.localeCompare(b, 'tr')),
+    mediaTypes: [...mediaTypes.values()].sort((a, b) => a.localeCompare(b, 'tr')),
     campaigns: perCampaign.filter((c) => c.campaign && !c.campaign.deleted),
     ...totalsAgg,
     totalRemaining: totals.remaining, totalExcess: totals.excess
@@ -248,18 +266,32 @@ export async function getFinanceVendorTotals() {
 export async function getMediaTypeOverview() {
   const [allMedia, allTypeNames] = await Promise.all([repo.getAllMedia(), repo.getAllMediaTypeNames()]);
   const today = todayISO();
-  const usedTypes = new Set(allMedia.map((m) => m.mediaType));
-  allTypeNames.forEach((t) => usedTypes.add(t));
-  const typesWithMedia = [...usedTypes].filter((mediaType) => allMedia.some((m) => m.mediaType === mediaType));
+
+  // §birlesik-yazim: mecra türü kayıtları artık normKey ile gruplanıyor —
+  // "Açık Hava" ve "açık hava" gibi farklı yazımlı kayıtlar tek bir kart
+  // olarak birleşiyor. Gösterilen isim önce seçmeli listedeki resmi yazımdan
+  // (allTypeNames) alınıyor, yoksa o gruptaki ilk görülen kayıttan.
+  const officialByKey = new Map(allTypeNames.map((t) => [normKey(t), t]));
+  const groups = new Map(); // typeKey -> { label, media: [] }
+  allMedia.filter((m) => !m.deleted).forEach((m) => {
+    const typeKey = normKey(m.mediaType);
+    if (!typeKey) return;
+    if (!groups.has(typeKey)) groups.set(typeKey, { label: officialByKey.get(typeKey) || (m.mediaType || '').trim(), media: [] });
+    groups.get(typeKey).media.push(m);
+  });
 
   // §perf: this used to be three nested sequential for-loops (media type ->
   // campaign -> vendor/campaign pair), each `await`-ing one network round
   // trip at a time. Parallelized at every level with Promise.all; totals are
   // summed with reduce() after each level's results are in, instead of
   // mutating shared counters between awaits.
-  const results = await Promise.all(typesWithMedia.map(async (mediaType) => {
-    const mediaOfType = allMedia.filter((m) => m.mediaType === mediaType);
-    const vendorNames = [...new Set(mediaOfType.map((m) => m.vendor))];
+  const results = await Promise.all([...groups.values()].map(async ({ label: mediaType, media: mediaOfType }) => {
+    const vendorMap = new Map(); // vendorKey -> { label, media: [] }
+    mediaOfType.forEach((m) => {
+      const vKey = normKey(m.vendor);
+      if (!vendorMap.has(vKey)) vendorMap.set(vKey, { label: (m.vendor || '').trim(), media: [] });
+      vendorMap.get(vKey).media.push(m);
+    });
     const campaignIds = [...new Set(mediaOfType.map((m) => m.campaignId))];
 
     const campaignRecords = await Promise.all(campaignIds.map((cid) => repo.getCampaign(cid)));
@@ -269,8 +301,7 @@ export async function getMediaTypeOverview() {
     const totalSales = mediaOfType.reduce((s, m) => s + (Number(m.sales) || 0), 0);
     const totalRistorno = mediaOfType.reduce((s, m) => s + calc.mediaRistorno(m), 0);
 
-    const vendorTotals = await Promise.all(vendorNames.map(async (v) => {
-      const vendorMediaAllCampaigns = mediaOfType.filter((m) => m.vendor === v);
+    const vendorTotals = await Promise.all([...vendorMap.entries()].map(async ([vKey, { label: v, media: vendorMediaAllCampaigns }]) => {
       const byCampaign = new Map();
       vendorMediaAllCampaigns.forEach((m) => {
         if (!byCampaign.has(m.campaignId)) byCampaign.set(m.campaignId, []);
@@ -278,7 +309,7 @@ export async function getMediaTypeOverview() {
       });
       const perCampaign = await Promise.all([...byCampaign.entries()].map(async ([cid, list]) => {
         const netPayable = calc.vendorGroupNetPayable(list, v);
-        const payments = (await repo.getPaymentsForCampaign(cid)).filter((p) => !p.deleted && p.vendor === v);
+        const payments = (await repo.getPaymentsForCampaign(cid)).filter((p) => !p.deleted && normKey(p.vendor) === vKey);
         const paid = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
         return { netPayable, paid };
       }));
@@ -290,7 +321,7 @@ export async function getMediaTypeOverview() {
     const { remaining } = calc.remainingAndExcess(totalNetPayable, totalPaid);
 
     return {
-      mediaType, vendorCount: vendorNames.length, activeCampaignCount,
+      mediaType, vendorCount: vendorMap.size, activeCampaignCount,
       totalPurchase, totalSales, totalRistorno, totalPaid, totalNetPayable, totalRemaining: remaining
     };
   }));
@@ -300,5 +331,6 @@ export async function getMediaTypeOverview() {
 
 export async function getVendorsForType(mediaType) {
   const allVendors = await getAllVendorsAggregate();
-  return allVendors.filter((v) => v.mediaTypes.includes(mediaType));
+  const typeKey = normKey(mediaType);
+  return allVendors.filter((v) => v.mediaTypes.some((t) => normKey(t) === typeKey));
 }

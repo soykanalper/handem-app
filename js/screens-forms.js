@@ -336,7 +336,20 @@ const KALEM_FLAVORS = {
   Kuşak: { unit: 'Saniye', title: 'Saniye Bazlı Takip', iconName: 'clock' }
 };
 const KALEM_DEFAULT_FLAVOR = { unit: 'Hafta', title: 'Haftalık Takip', iconName: 'calendar' };
-function kalemFlavorFor(sub) { return KALEM_FLAVORS[sub] || KALEM_DEFAULT_FLAVOR; }
+// §is-turu-birim: artık ayrı bir TV alt-tür seçimi (Sponsor/Banner/Kuşak
+// pilleri) yok — haftalık takip birimi doğrudan İş Türü alanına yazılan
+// metinden anlaşılıyor, Mecra Türü ne olursa olsun (sadece TV'ye özel değil).
+// "Sponsorluk" (ya da tanınmayan başka bir iş türü) → Hafta, "Banner"/"Bant"
+// → Adet, "Kuşak" → Saniye. Kullanıcı İş Türü'nü değiştirdikçe otomatik
+// güncellenir (bkz. openMediaForm/quickNewCampaign'daki İş Türü input
+// dinleyicileri).
+function kalemFlavorForWorkType(workType) {
+  const key = (workType || '').trim().toLocaleLowerCase('tr-TR');
+  if (!key) return KALEM_DEFAULT_FLAVOR;
+  if (key.includes('banner') || key.includes('bant')) return KALEM_FLAVORS.Banner;
+  if (key.includes('kuşak')) return KALEM_FLAVORS.Kuşak;
+  return KALEM_DEFAULT_FLAVOR;
+}
 
 // §kalem-satis: her kalem satırı artık Alış (amount) VE Satış (salesAmount)
 // olmak üzere iki ayrı tutar taşıyor — eski kayıtlarda salesAmount hiç
@@ -354,9 +367,9 @@ function kalemRowHtml(it) {
 }
 
 export async function openMediaForm(campaignId, mediaId) {
-  const [media, mediaTypes, workTypes] = await Promise.all([
+  const [media, mediaTypes] = await Promise.all([
     mediaId ? repo.getMediaRecord(mediaId) : null,
-    repo.getAllMediaTypeNames(), repo.getAllWorkTypeNames()
+    repo.getAllMediaTypeNames()
   ]);
 
   // §kalem-takip: Mecra Türü artık seçmeli — DEFAULT_MEDIA_TYPES listesi +
@@ -370,8 +383,14 @@ export async function openMediaForm(campaignId, mediaId) {
   // listesi + kullanıcının o türde daha önce girdikleri; diğer türlerde
   // sadece o türde daha önce girilenler) — Mecra Türü değişince aşağıdaki
   // refreshVendorDatalist() ile yeniden doldurulur, elle yazma her zaman açık.
-  const vendors = await repo.getVendorNamesForType(initialType);
-  const isTVInitially = !manualMode && initialType === 'TV';
+  // §is-turu-tur-bazli: İş Türü önerileri de aynı şekilde artık Mecra
+  // Türü'ne göre — o türde gerçekten kullanılmış tüm iş türleri (sabit bir
+  // sayıyla sınırlı değil), Mecra Türü değişince refreshWorkTypeDatalist()
+  // ile yeniden dolar.
+  const [vendors, workTypes] = await Promise.all([
+    repo.getVendorNamesForType(initialType),
+    repo.getWorkTypeNamesForType(initialType)
+  ]);
   const budgetItems = media && media.budgetEnabled && Array.isArray(media.budgetItems) ? media.budgetItems : [];
   const budgetOn = !!(media && media.budgetEnabled);
   // §musteri-kdv: eski kayıtlarda salesVatRate hiç yoktu — dokunmadan
@@ -391,21 +410,16 @@ export async function openMediaForm(campaignId, mediaId) {
       <input id="fMediaType" list="mediaTypeList" placeholder="Mecra türünü yaz…" value="${escapeHtml(initialType)}" style="${manualMode ? '' : 'display:none;'}">
       ${datalist('mediaTypeList', mediaTypes)}
       <div class="kalem-note" id="manualBackHint" style="${manualMode ? '' : 'display:none;'}">Listeye dönmek için <a href="#" id="backToMediaList">buraya dokun</a></div>
-      <div class="kalem-note" id="tvSubHint" style="${isTVInitially ? '' : 'display:none;'}">TV türü <span class="hint">(isteğe bağlı — sadece kalem etiketlerini kolaylaştırır)</span></div>
-      <div class="pills" id="tvSubRow" style="padding:2px 2px 0;${isTVInitially ? '' : 'display:none;'}">
-        <button type="button" class="pill" data-sub="Sponsorluk">Sponsor</button>
-        <button type="button" class="pill" data-sub="Banner">Banner</button>
-        <button type="button" class="pill" data-sub="Kuşak">Kuşak</button>
-      </div>
-    </div>
-    <div class="field"><label>Yüklenici *</label>
-      <input id="fVendor" list="vendorListMedia" placeholder="Örn: Show TV" value="${media ? escapeHtml(media.vendor) : ''}">
-      ${datalist('vendorListMedia', vendors)}
     </div>
     <div class="field"><label>İş Türü *</label>
       <input id="fWorkType" list="workTypeList" placeholder="Reklam, Sponsorluk…" value="${media ? escapeHtml(media.workType) : ''}">
       ${datalist('workTypeList', workTypes)}
     </div>
+    <div class="field"><label>Yüklenici *</label>
+      <input id="fVendor" list="vendorListMedia" placeholder="Örn: Show TV" value="${media ? escapeHtml(media.vendor) : ''}">
+      ${datalist('vendorListMedia', vendors)}
+    </div>
+    <div class="field">${noteFieldHtml('fMediaNote', media && media.note ? media.note : '', 'Açıklama')}</div>
 
     <div class="kalem-section">
       <div class="kalem-toggle-row">
@@ -449,7 +463,6 @@ export async function openMediaForm(campaignId, mediaId) {
       <div class="field"><label>Başlangıç</label><input id="fMediaStart" type="date" value="${media && media.startDate ? media.startDate : ''}"></div>
       <div class="field"><label>Bitiş</label><input id="fMediaEnd" type="date" value="${media && media.endDate ? media.endDate : ''}"></div>
     </div>
-    <div class="field">${noteFieldHtml('fMediaNote', media && media.note ? media.note : '')}</div>
 
     <div class="preview-box" id="mediaPreview" style="background:var(--primary-bg);border-radius:12px;padding:10px 12px;margin:6px 0 12px;display:flex;flex-direction:column;gap:5px;">
       <div class="pline" style="display:flex;justify-content:space-between;font-size:11.5px;"><span>Ristorno Tutarı</span><b id="pRistorno">0 ₺</b></div>
@@ -494,33 +507,29 @@ export async function openMediaForm(campaignId, mediaId) {
       sheet.querySelector('#' + id).addEventListener('change', update);
     });
 
-    // ---- §kalem-takip: Mecra Türü seçmeli/elle-yazma + TV alt-türü --------
+    // ---- §kalem-takip: Mecra Türü seçmeli/elle-yazma --------
     const typeSelect = sheet.querySelector('#fMediaTypeSelect');
     const typeManual = sheet.querySelector('#fMediaType');
     const manualHint = sheet.querySelector('#manualBackHint');
-    const subHint = sheet.querySelector('#tvSubHint');
-    const subRow = sheet.querySelector('#tvSubRow');
-    const subPills = Array.from(subRow.querySelectorAll('.pill'));
-
-    const setKalemFlavor = (sub) => {
-      const f = kalemFlavorFor(sub);
-      kalemUnit = f.unit;
-      sheet.querySelector('#kalemTitle').innerHTML = `${icon(f.iconName, { size: 15 })} ${f.title}`;
-    };
-    const highlightSub = (sub) => subPills.forEach((p) => p.classList.toggle('active', p.dataset.sub === sub));
     const setResolvedType = (value) => {
       typeManual.value = value;
       typeManual.dispatchEvent(new Event('input', { bubbles: true }));
       typeManual.dispatchEvent(new Event('change', { bubbles: true }));
     };
-
-    // Not: burada gizleme/gösterme her zaman .style.display ile yapılır,
-    // `hidden` attribute'u ile DEĞİL — çünkü #tvSubRow zaten .pills sınıfını
-    // taşıyor ve .pills{display:flex} kuralı (author CSS), tarayıcının
-    // varsayılan [hidden]{display:none} kuralını (user-agent CSS) ezip
-    // geçiyor; aynı çakışmaya düşmemek için hepsi aynı yöntemle yönetiliyor.
     const showEl = (el, display) => { el.style.display = display; };
     const hideEl = (el) => { el.style.display = 'none'; };
+
+    // ---- §is-turu-birim: haftalık takip birimi artık İş Türü'nden geliyor -
+    let kalemUnit = 'Hafta';
+    const setKalemFlavor = (workTypeValue) => {
+      const f = kalemFlavorForWorkType(workTypeValue);
+      kalemUnit = f.unit;
+      sheet.querySelector('#kalemTitle').innerHTML = `${icon(f.iconName, { size: 15 })} ${f.title}`;
+    };
+    const workTypeInput = sheet.querySelector('#fWorkType');
+    setKalemFlavor(workTypeInput.value);
+    workTypeInput.addEventListener('input', () => setKalemFlavor(workTypeInput.value));
+    workTypeInput.addEventListener('change', () => setKalemFlavor(workTypeInput.value));
 
     // §yuklenici-secmeli: Mecra Türü değişince Yüklenici alanının datalist'i
     // (vendorListMedia) o türe göre yeniden dolduruluyor — TV/Radio seçilince
@@ -531,31 +540,34 @@ export async function openMediaForm(campaignId, mediaId) {
       const opts = await repo.getVendorNamesForType((type || '').trim());
       vendorDatalistEl.innerHTML = opts.map((v) => `<option value="${escapeHtml(v)}">`).join('');
     };
+    // §is-turu-tur-bazli: İş Türü de artık Yüklenici ile aynı desende, Mecra
+    // Türü'ne göre dolan bir öneri listesi — o türde daha önce gerçekten
+    // kullanılmış TÜM iş türlerini gösterir (3 sabit TV alt-türüyle sınırlı
+    // değil), ama alan yine elle yazmaya açık serbest metin.
+    const workTypeDatalistEl = sheet.querySelector('#workTypeList');
+    const refreshWorkTypeDatalist = async (type) => {
+      if (!workTypeDatalistEl) return;
+      const opts = await repo.getWorkTypeNamesForType((type || '').trim());
+      workTypeDatalistEl.innerHTML = opts.map((w) => `<option value="${escapeHtml(w)}">`).join('');
+    };
 
     typeSelect.addEventListener('change', () => {
       if (typeSelect.value === '__manual__') {
         hideEl(typeSelect);
         showEl(typeManual, '');
         showEl(manualHint, '');
-        hideEl(subHint);
-        hideEl(subRow);
         typeManual.value = '';
         typeManual.focus();
         typeManual.dispatchEvent(new Event('input', { bubbles: true }));
-        setKalemFlavor(null);
         refreshVendorDatalist('');
+        refreshWorkTypeDatalist('');
       } else {
         setResolvedType(typeSelect.value);
-        const isTVSel = typeSelect.value === 'TV';
-        if (isTVSel) { showEl(subHint, ''); showEl(subRow, 'flex'); highlightSub('Sponsorluk'); setKalemFlavor('Sponsorluk'); }
-        else { hideEl(subHint); hideEl(subRow); setKalemFlavor(null); }
         refreshVendorDatalist(typeSelect.value);
+        refreshWorkTypeDatalist(typeSelect.value);
       }
     });
-    typeManual.addEventListener('change', () => { refreshVendorDatalist(typeManual.value); });
-    subPills.forEach((p) => {
-      p.addEventListener('click', () => { highlightSub(p.dataset.sub); setKalemFlavor(p.dataset.sub); });
-    });
+    typeManual.addEventListener('change', () => { refreshVendorDatalist(typeManual.value); refreshWorkTypeDatalist(typeManual.value); });
     const backLink = sheet.querySelector('#backToMediaList');
     if (backLink) {
       backLink.addEventListener('click', (e) => {
@@ -566,17 +578,12 @@ export async function openMediaForm(campaignId, mediaId) {
         typeSelect.value = 'TV';
         setResolvedType('TV');
         refreshVendorDatalist('TV');
-        showEl(subHint, '');
-        showEl(subRow, 'flex');
-        highlightSub('Sponsorluk');
-        setKalemFlavor('Sponsorluk');
+        refreshWorkTypeDatalist('TV');
       });
     }
-    if (isTVInitially) highlightSub('Sponsorluk');
 
     // ---- §kalem-takip / §kalem-satis: haftalık/adet/saniye kalem listesi,
     // her satırda ayrı Alış VE Satış tutarı ------------------------------
-    let kalemUnit = 'Hafta';
     const kalemItemsState = budgetItems.map((it) => ({ label: it.label, amount: Number(it.amount) || 0, salesAmount: Number(it.salesAmount) || 0 }));
     const kalemListEl = sheet.querySelector('#kalemList');
     const kalemBody = sheet.querySelector('#kalemBody');
@@ -629,10 +636,16 @@ export async function openMediaForm(campaignId, mediaId) {
       if (rows.length) rows[rows.length - 1].focus();
     });
 
-    if (budgetOn) {
-      const firstLabel = (kalemItemsState[0] && kalemItemsState[0].label || '').toLowerCase();
+    if (budgetOn && kalemUnit === 'Hafta') {
+      // §is-turu-birim: birim üstte İş Türü'nden zaten belirlendi (Hafta ise
+      // İş Türü bir ipucu vermedi demektir) — eski kayıtlarda İş Türü nötr
+      // ("Reklam" gibi) olup kalem etiketleri "Adet"/"Saniye" ise geriye
+      // dönük bu ipucu kullanılıyor, hiçbir eski kayıt bozulmuyor.
+      const firstLabel = (kalemItemsState[0] && kalemItemsState[0].label || '').toLocaleLowerCase('tr-TR');
       if (firstLabel.includes('bant') || firstLabel.includes('adet')) setKalemFlavor('Banner');
       else if (firstLabel.includes('kuşak') || firstLabel.includes('saniye')) setKalemFlavor('Kuşak');
+    }
+    if (budgetOn) {
       renderKalemRows();
       syncKalemTotal();
     }
@@ -642,9 +655,19 @@ export async function openMediaForm(campaignId, mediaId) {
 }
 
 export async function saveMedia(campaignId, mediaId) {
-  const mediaType = document.getElementById('fMediaType').value.trim();
-  const vendor = document.getElementById('fVendor').value.trim();
-  const workType = document.getElementById('fWorkType').value.trim();
+  const rawMediaType = document.getElementById('fMediaType').value.trim();
+  const rawVendor = document.getElementById('fVendor').value.trim();
+  const rawWorkType = document.getElementById('fWorkType').value.trim();
+  // §birlesik-yazim: kaydedilmeden önce Mecra Türü/Yüklenici/İş Türü zaten
+  // var olan bir yazımla (case/boşluk farkı göz ardı edilerek) eşleşiyorsa o
+  // yazıma "snap" edilir — bundan sonraki her kayıt aynı çatı altında
+  // birleşir, yeni bir yazım varyantı asla oluşmaz. Gerçekten yeni bir isimse
+  // (eşleşme yoksa) elle yazılan hâliyle aynen kaydedilir.
+  const [mediaType, vendor, workType] = await Promise.all([
+    repo.canonicalMediaType(rawMediaType),
+    repo.canonicalVendorName(rawVendor),
+    repo.canonicalWorkType(rawWorkType)
+  ]);
 
   // §kalem-takip: kalem takibi açıksa Alış Tutarı ekrandaki (otomatik
   // hesaplanmış, disabled) alandan değil, doğrudan kalem satırlarından
@@ -752,15 +775,18 @@ export async function saveVendorProfile(vendorName) {
 // sayfasına gider — künye orada zaten görünür.
 // ============================================================================
 export async function openVendorQuickAddForm() {
-  const [mediaTypes, workTypes, clients] = await Promise.all([
-    repo.getAllMediaTypeNames(), repo.getAllWorkTypeNames(), repo.getClients()
+  const [mediaTypes, clients] = await Promise.all([
+    repo.getAllMediaTypeNames(), repo.getClients()
   ]);
   // §yuklenici-secmeli: bu form da (Mecralar sayfası "+") diğer ikisiyle
   // aynı Mecra Türü seçmeli/elle-yazma davranışını kullanıyor — burada TV
   // alt-türü (Sponsor/Banner/Kuşak) yok çünkü bu form kalem-kalem takip
-  // içermiyor, sadece Mecra Türü select'i + Yüklenici'nin türe göre dolan
-  // datalist'i var.
-  const vendors = await repo.getVendorNamesForType('TV');
+  // içermiyor, sadece Mecra Türü select'i + Yüklenici/İş Türü'nün türe göre
+  // dolan datalist'leri var.
+  const [vendors, workTypes] = await Promise.all([
+    repo.getVendorNamesForType('TV'),
+    repo.getWorkTypeNamesForType('TV')
+  ]);
   const html = `
     <button class="close-x" onclick="H.closeSheet()">✕</button>
     <h2>Yeni Mecra / Yüklenici</h2>
@@ -838,6 +864,12 @@ export async function openVendorQuickAddForm() {
       const opts = await repo.getVendorNamesForType((type || '').trim());
       fvVendorDatalistEl.innerHTML = opts.map((v) => `<option value="${escapeHtml(v)}">`).join('');
     };
+    const fvWorkTypeDatalistEl = sheet.querySelector('#fvWorkTypeList');
+    const refreshFvWorkTypeDatalist = async (type) => {
+      if (!fvWorkTypeDatalistEl) return;
+      const opts = await repo.getWorkTypeNamesForType((type || '').trim());
+      fvWorkTypeDatalistEl.innerHTML = opts.map((w) => `<option value="${escapeHtml(w)}">`).join('');
+    };
     fvTypeSelect.addEventListener('change', () => {
       if (fvTypeSelect.value === '__manual__') {
         hideEl(fvTypeSelect);
@@ -846,12 +878,14 @@ export async function openVendorQuickAddForm() {
         fvTypeManual.value = '';
         fvTypeManual.focus();
         refreshFvVendorDatalist('');
+        refreshFvWorkTypeDatalist('');
       } else {
         fvTypeManual.value = fvTypeSelect.value;
         refreshFvVendorDatalist(fvTypeSelect.value);
+        refreshFvWorkTypeDatalist(fvTypeSelect.value);
       }
     });
-    fvTypeManual.addEventListener('change', () => { refreshFvVendorDatalist(fvTypeManual.value); });
+    fvTypeManual.addEventListener('change', () => { refreshFvVendorDatalist(fvTypeManual.value); refreshFvWorkTypeDatalist(fvTypeManual.value); });
     const fvBackLink = sheet.querySelector('#fvBackToMediaList');
     if (fvBackLink) {
       fvBackLink.addEventListener('click', (e) => {
@@ -862,21 +896,28 @@ export async function openVendorQuickAddForm() {
         fvTypeSelect.value = 'TV';
         fvTypeManual.value = 'TV';
         refreshFvVendorDatalist('TV');
+        refreshFvWorkTypeDatalist('TV');
       });
     }
   });
 }
 
 export async function saveVendorQuickAdd() {
-  const mediaType = document.getElementById('fvMediaType').value.trim();
-  const vendor = document.getElementById('fvVendor').value.trim();
-  if (!mediaType) { toast('Mecra türü zorunlu', 'error'); return; }
-  if (!vendor) { toast('Yüklenici zorunlu', 'error'); return; }
+  const rawMediaType = document.getElementById('fvMediaType').value.trim();
+  const rawVendor = document.getElementById('fvVendor').value.trim();
+  if (!rawMediaType) { toast('Mecra türü zorunlu', 'error'); return; }
+  if (!rawVendor) { toast('Yüklenici zorunlu', 'error'); return; }
+  // §birlesik-yazim: var olan yazıma snap edilir (bkz. saveMedia).
+  const [mediaType, vendor] = await Promise.all([
+    repo.canonicalMediaType(rawMediaType),
+    repo.canonicalVendorName(rawVendor)
+  ]);
 
   const kunye = readKunyeFields();
   const clientName = document.getElementById('fvClient').value.trim();
   let campaignName = document.getElementById('fvCampaign').value.trim();
-  const workType = document.getElementById('fvWorkType').value.trim();
+  const rawWorkType = document.getElementById('fvWorkType').value.trim();
+  const workType = await repo.canonicalWorkType(rawWorkType);
   const purchase = document.getElementById('fvPurchase').value;
   const sales = document.getElementById('fvSales').value;
   const ristornoPercent = document.getElementById('fvRistorno').value;
@@ -1061,6 +1102,11 @@ async function openInvoiceEntityStep2(entityType, entityId, entityLabel) {
     campaigns = data.campaigns.map((c) => c.campaign);
     records = payments;
   }
+  // §fatura-elle-yaz: liste boşsa (ör. bu müşteri/mecra için henüz hiç
+  // kampanya/tahsilat/ödeme kaydı yoksa) ya da aradığın kayıt listede yoksa
+  // artık seçmeli kutunun altında her zaman bir "elle yaz" alanı da var —
+  // select boş bırakılırsa bu metin kullanılır, doldurulursa select'teki
+  // gerçek kayıt öncelikli sayılır.
   const html = `
     <button class="close-x" onclick="H.closeSheet()">✕</button>
     <h2>${escapeHtml(entityLabel)}</h2>
@@ -1069,12 +1115,14 @@ async function openInvoiceEntityStep2(entityType, entityId, entityLabel) {
         <option value="">Seçme (genel fatura)</option>
         ${campaigns.map((c) => `<option value="${c.id}">${escapeHtml(c.name || c.productName)}</option>`).join('')}
       </select>
+      <input id="fInvCampaignManual" placeholder="Listede yoksa iş/kampanya adını buraya elle yaz" style="margin-top:6px;">
     </div>
     <div class="field"><label>Hangi ${entityType === 'client' ? 'Tahsilat' : 'Ödeme'} İçin <span class="hint">(isteğe bağlı)</span></label>
       <select id="fInvRelatedSel">
         <option value="">Seçme</option>
         ${records.map((r) => `<option value="${r.id}">${formatDate(r.date)} · ${fmt(r.amount)}${r.campaignName ? ' · ' + escapeHtml(r.campaignName) : ''}</option>`).join('')}
       </select>
+      <input id="fInvRelatedManual" placeholder="Listede yoksa hangi ${entityType === 'client' ? 'tahsilat' : 'ödeme'} olduğunu buraya elle yaz" style="margin-top:6px;">
     </div>
     <button class="btn primary" onclick="H.guard(this, () => H.confirmInvoiceStep2('${entityType}','${jsAttr(entityId)}','${jsAttr(entityLabel)}'))">Devam Et</button>
   `;
@@ -1085,13 +1133,20 @@ async function openInvoiceEntityStep2(entityType, entityId, entityLabel) {
 
 export async function confirmInvoiceStep2(entityType, entityId, entityLabel) {
   const campaignId = document.getElementById('fInvCampaignSel').value || '';
+  const campaignManual = document.getElementById('fInvCampaignManual').value.trim();
   const relatedId = document.getElementById('fInvRelatedSel').value || '';
+  const relatedManual = document.getElementById('fInvRelatedManual').value.trim();
   const campaigns = invoiceStep2Campaigns;
   const campaign = campaignId ? campaigns.find((c) => c.id === campaignId) : null;
+  // §fatura-elle-yaz: select'te gerçek bir kayıt seçildiyse o öncelikli —
+  // seçilmediyse (liste boştu ya da aranan kayıt yoktu) elle yazılan metin
+  // kullanılır. relatedNote sadece elle yazılan durumda dolar; relatedId hep
+  // gerçek bir kayda işaret eder ya da tamamen boştur.
   invoiceQuickCtx = {
     campaignId,
-    campaignName: campaign ? (campaign.name || campaign.productName) : '',
+    campaignName: campaign ? (campaign.name || campaign.productName) : campaignManual,
     relatedId,
+    relatedNote: relatedId ? '' : relatedManual,
     relatedType: entityType === 'client' ? 'collection' : 'payment'
   };
   closeSheet();
@@ -1109,7 +1164,7 @@ export async function openInvoiceForm(entityType, entityId, invoiceId) {
     // sayfasının "+Ekle" bağlantısından açıldıysa invoiceQuickCtx zaten boştur.
   } else {
     // Var olan bir faturayı düzenlerken kendi kayıtlı bağlamını kullan.
-    invoiceQuickCtx = { campaignId: existing.campaignId || '', campaignName: existing.campaignName || '', relatedId: existing.relatedId || '', relatedType: existing.relatedType || '' };
+    invoiceQuickCtx = { campaignId: existing.campaignId || '', campaignName: existing.campaignName || '', relatedId: existing.relatedId || '', relatedNote: existing.relatedNote || '', relatedType: existing.relatedType || '' };
   }
 
   const html = `
@@ -1151,6 +1206,7 @@ export async function saveInvoice(entityType, entityId, invoiceId) {
     campaignId: invoiceQuickCtx.campaignId || '',
     campaignName: invoiceQuickCtx.campaignName || '',
     relatedId: invoiceQuickCtx.relatedId || '',
+    relatedNote: invoiceQuickCtx.relatedNote || '',
     relatedType: invoiceQuickCtx.relatedType || '',
     photos: invoicePhotos.slice()
   };
@@ -1615,14 +1671,16 @@ export async function openPaymentForm(ctx = {}) {
 export async function savePayment(paymentId) {
   const clientNameInput = document.getElementById('fPayClient').value.trim();
   const campaignNameInput = document.getElementById('fPayCampaign').value.trim();
-  const vendor = document.getElementById('fPayVendor').value.trim();
+  const rawVendor = document.getElementById('fPayVendor').value.trim();
   const date = document.getElementById('fPayDate').value;
   const paymentType = document.getElementById('fPayType').value;
   const note = document.getElementById('fPayNote').value.trim();
 
   if (!clientNameInput) { toast('Müşteri adını seç veya yaz', 'error'); return; }
   if (!campaignNameInput) { toast('Kampanya adını seç veya yaz', 'error'); return; }
-  if (!vendor) { toast('Yüklenici seçmelisin', 'error'); return; }
+  if (!rawVendor) { toast('Yüklenici seçmelisin', 'error'); return; }
+  // §birlesik-yazim: var olan yazıma snap edilir (bkz. saveMedia).
+  const vendor = await repo.canonicalVendorName(rawVendor);
   if (!date) { toast('Tarih zorunlu', 'error'); return; }
 
   const existing = paymentId ? await repo.getPayment(paymentId) : null;
@@ -1883,13 +1941,17 @@ export async function quickNewProductConfirm() {
 // bırakılan mecra alanları varsa kampanya mecrasız oluşur, daha sonra
 // Kampanya Detayı'ndan eklenebilir/silinebilir (mevcut yetenek, değişmedi).
 export async function quickNewCampaign() {
-  const [clients, mediaTypes, workTypes] = await Promise.all([
-    repo.getClients(), repo.getAllMediaTypeNames(), repo.getAllWorkTypeNames()
+  const [clients, mediaTypes] = await Promise.all([
+    repo.getClients(), repo.getAllMediaTypeNames()
   ]);
   // §yuklenici-secmeli: bu form her zaman "TV" varsayılanıyla açılıyor —
   // Yüklenici önerileri de o türe göre (TV kanalları) doldurulur, Mecra Türü
   // değişince aşağıdaki refreshQcVendorDatalist ile yeniden doldurulur.
-  const vendors = await repo.getVendorNamesForType('TV');
+  // §is-turu-tur-bazli: İş Türü önerileri de aynı desende, tür bazlı.
+  const [vendors, workTypes] = await Promise.all([
+    repo.getVendorNamesForType('TV'),
+    repo.getWorkTypeNamesForType('TV')
+  ]);
   const html = `
     <button class="close-x" onclick="H.closeSheet()">✕</button>
     <h2>Yeni Kampanya</h2>
@@ -1914,20 +1976,14 @@ export async function quickNewCampaign() {
       <input id="qcMediaType" list="qcMediaTypeList" placeholder="Mecra türünü yaz…" value="TV" style="display:none;">
       ${datalist('qcMediaTypeList', mediaTypes)}
       <div class="kalem-note" id="qcManualBackHint" style="display:none;">Listeye dönmek için <a href="#" id="qcBackToMediaList">buraya dokun</a></div>
-      <div class="kalem-note" id="qcTvSubHint">TV türü <span class="hint">(isteğe bağlı — sadece kalem etiketlerini kolaylaştırır)</span></div>
-      <div class="pills" id="qcTvSubRow" style="padding:2px 2px 0;">
-        <button type="button" class="pill" data-sub="Sponsorluk">Sponsor</button>
-        <button type="button" class="pill" data-sub="Banner">Banner</button>
-        <button type="button" class="pill" data-sub="Kuşak">Kuşak</button>
-      </div>
-    </div>
-    <div class="field"><label>Yüklenici</label>
-      <input id="qcVendor" list="qcVendorList" placeholder="Örn: Show TV">
-      ${datalist('qcVendorList', vendors)}
     </div>
     <div class="field"><label>İş Türü</label>
       <input id="qcWorkType" list="qcWorkTypeList" placeholder="Reklam, Sponsorluk…">
       ${datalist('qcWorkTypeList', workTypes)}
+    </div>
+    <div class="field"><label>Yüklenici</label>
+      <input id="qcVendor" list="qcVendorList" placeholder="Örn: Show TV">
+      ${datalist('qcVendorList', vendors)}
     </div>
 
     <div class="kalem-section">
@@ -1986,27 +2042,28 @@ export async function quickNewCampaign() {
     clientInput.addEventListener('change', refreshProducts);
 
     // ---- §kalem-takip (Ana Sayfa hızlı kampanya formu): openMediaForm ile
-    // AYNI Mecra Türü seçmeli/elle-yazma + TV alt-türü + haftalık takip
-    // davranışı — burada da `hidden` attribute'u DEĞİL, .style.display
-    // kullanılıyor (bkz. openMediaForm'daki aynı not — #qcTvSubRow da
-    // .pills sınıfını taşıyor, aynı çakışmaya düşmemek için). ---------------
+    // AYNI Mecra Türü seçmeli/elle-yazma davranışı — burada da `hidden`
+    // attribute'u DEĞİL, .style.display kullanılıyor (bkz. openMediaForm'daki
+    // aynı not). ---------------------------------------------------------
     const showEl = (el, display) => { el.style.display = display; };
     const hideEl = (el) => { el.style.display = 'none'; };
 
     const qcTypeSelect = sheet.querySelector('#qcMediaTypeSelect');
     const qcTypeManual = sheet.querySelector('#qcMediaType');
     const qcManualHint = sheet.querySelector('#qcManualBackHint');
-    const qcSubHint = sheet.querySelector('#qcTvSubHint');
-    const qcSubRow = sheet.querySelector('#qcTvSubRow');
-    const qcSubPills = Array.from(qcSubRow.querySelectorAll('.pill'));
 
+    // §is-turu-birim: openMediaForm'daki setKalemFlavor ile birebir aynı
+    // desen — haftalık takip birimi artık İş Türü'nden geliyor.
     let qcKalemUnit = 'Hafta';
-    const setQcKalemFlavor = (sub) => {
-      const f = kalemFlavorFor(sub);
+    const setQcKalemFlavor = (workTypeValue) => {
+      const f = kalemFlavorForWorkType(workTypeValue);
       qcKalemUnit = f.unit;
       sheet.querySelector('#qcKalemTitle').innerHTML = `${icon(f.iconName, { size: 15 })} ${f.title}`;
     };
-    const highlightQcSub = (sub) => qcSubPills.forEach((p) => p.classList.toggle('active', p.dataset.sub === sub));
+    const qcWorkTypeInput = sheet.querySelector('#qcWorkType');
+    setQcKalemFlavor(qcWorkTypeInput.value);
+    qcWorkTypeInput.addEventListener('input', () => setQcKalemFlavor(qcWorkTypeInput.value));
+    qcWorkTypeInput.addEventListener('change', () => setQcKalemFlavor(qcWorkTypeInput.value));
 
     // §yuklenici-secmeli: openMediaForm'daki refreshVendorDatalist ile
     // birebir aynı desen — Mecra Türü değişince Yüklenici datalist'i o türe
@@ -2017,30 +2074,31 @@ export async function quickNewCampaign() {
       const opts = await repo.getVendorNamesForType((type || '').trim());
       qcVendorDatalistEl.innerHTML = opts.map((v) => `<option value="${escapeHtml(v)}">`).join('');
     };
+    // §is-turu-tur-bazli: openMediaForm'daki refreshWorkTypeDatalist ile
+    // birebir aynı desen.
+    const qcWorkTypeDatalistEl = sheet.querySelector('#qcWorkTypeList');
+    const refreshQcWorkTypeDatalist = async (type) => {
+      if (!qcWorkTypeDatalistEl) return;
+      const opts = await repo.getWorkTypeNamesForType((type || '').trim());
+      qcWorkTypeDatalistEl.innerHTML = opts.map((w) => `<option value="${escapeHtml(w)}">`).join('');
+    };
 
     qcTypeSelect.addEventListener('change', () => {
       if (qcTypeSelect.value === '__manual__') {
         hideEl(qcTypeSelect);
         showEl(qcTypeManual, '');
         showEl(qcManualHint, '');
-        hideEl(qcSubHint);
-        hideEl(qcSubRow);
         qcTypeManual.value = '';
         qcTypeManual.focus();
-        setQcKalemFlavor(null);
         refreshQcVendorDatalist('');
+        refreshQcWorkTypeDatalist('');
       } else {
         qcTypeManual.value = qcTypeSelect.value;
-        const isTVSel = qcTypeSelect.value === 'TV';
-        if (isTVSel) { showEl(qcSubHint, ''); showEl(qcSubRow, 'flex'); highlightQcSub('Sponsorluk'); setQcKalemFlavor('Sponsorluk'); }
-        else { hideEl(qcSubHint); hideEl(qcSubRow); setQcKalemFlavor(null); }
         refreshQcVendorDatalist(qcTypeSelect.value);
+        refreshQcWorkTypeDatalist(qcTypeSelect.value);
       }
     });
-    qcTypeManual.addEventListener('change', () => { refreshQcVendorDatalist(qcTypeManual.value); });
-    qcSubPills.forEach((p) => {
-      p.addEventListener('click', () => { highlightQcSub(p.dataset.sub); setQcKalemFlavor(p.dataset.sub); });
-    });
+    qcTypeManual.addEventListener('change', () => { refreshQcVendorDatalist(qcTypeManual.value); refreshQcWorkTypeDatalist(qcTypeManual.value); });
     sheet.querySelector('#qcBackToMediaList').addEventListener('click', (e) => {
       e.preventDefault();
       hideEl(qcTypeManual);
@@ -2049,12 +2107,8 @@ export async function quickNewCampaign() {
       qcTypeSelect.value = 'TV';
       qcTypeManual.value = 'TV';
       refreshQcVendorDatalist('TV');
-      showEl(qcSubHint, '');
-      showEl(qcSubRow, 'flex');
-      highlightQcSub('Sponsorluk');
-      setQcKalemFlavor('Sponsorluk');
+      refreshQcWorkTypeDatalist('TV');
     });
-    highlightQcSub('Sponsorluk');
 
     // ---- kalem kalem (haftalık/adet/saniye) listesi, Alış + Satış ----------
     let qcKalemItems = [];
@@ -2111,9 +2165,15 @@ export async function quickNewCampaignConfirm() {
   const clientName = document.getElementById('qcClient').value.trim();
   let productName = document.getElementById('qcProduct').value.trim();
   let campName = document.getElementById('qcCampName').value.trim();
-  const mediaType = document.getElementById('qcMediaType').value.trim();
-  const vendor = document.getElementById('qcVendor').value.trim();
-  const workType = document.getElementById('qcWorkType').value.trim();
+  const rawMediaType = document.getElementById('qcMediaType').value.trim();
+  const rawVendor = document.getElementById('qcVendor').value.trim();
+  const rawWorkType = document.getElementById('qcWorkType').value.trim();
+  // §birlesik-yazim: var olan yazıma snap edilir (bkz. saveMedia).
+  const [mediaType, vendor, workType] = await Promise.all([
+    repo.canonicalMediaType(rawMediaType),
+    repo.canonicalVendorName(rawVendor),
+    repo.canonicalWorkType(rawWorkType)
+  ]);
   // §kalem-takip: kalem takibi açıksa Alış Tutarı ekrandaki (otomatik
   // hesaplanmış, disabled) alandan değil, doğrudan kalem satırlarından
   // yeniden toplanır — openMediaForm/saveMedia ile birebir aynı desen.

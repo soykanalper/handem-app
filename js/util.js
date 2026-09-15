@@ -6,6 +6,17 @@ export function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
 }
 
+// §birlesik-yazim: Mecra Türü / Yüklenici / İş Türü gibi kullanıcının elle
+// yazdığı isimler HER YERDE bu fonksiyonla karşılaştırılır (trim + Türkçe
+// locale küçük harf) — "ATV" ile "Atv", "Açık Hava" ile "açık hava" ya da
+// baştaki/sondaki bir boşluk farkı artık ne ayrı bir kayıt/grup olarak
+// gösterilir ne de birbirinden kopuk finansal toplamlara yol açar. Sadece
+// KARŞILAŞTIRMA için kullanılır — asla ekranda gösterilecek/kaydedilecek
+// metin olarak kullanılmaz (görünen isim her zaman orijinal yazım kalır).
+export function normKey(s) {
+  return (s || '').trim().toLocaleLowerCase('tr-TR');
+}
+
 export function fmt(n) {
   const v = Number(n) || 0;
   return Math.round(v).toLocaleString('tr-TR') + ' ₺';

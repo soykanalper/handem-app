@@ -5,7 +5,7 @@
 import * as repo from './repo.js';
 import * as calc from './calc.js';
 import * as agg from './aggregate.js';
-import { fmt, fmtN, formatDate, escapeHtml, jsAttr, todayISO, toast } from './util.js';
+import { fmt, fmtN, formatDate, escapeHtml, jsAttr, todayISO, toast, normKey } from './util.js';
 import { setTopbar, setContent, setActiveNav, setFabVisible, setFabAction, navigate, refresh, openSheet, closeSheet, openLightbox, confirmDialog } from './ui.js';
 import { avatarHtml, payRowHtml, chequeRowHtml, chequeStatusChip, chequeUsedFragment, emptyState, photoStripHtml, photoGalleryHtml, kunyeCardHtml, invoiceSectionHtml } from './components.js';
 import { icon } from './icons.js';
@@ -61,7 +61,8 @@ export async function renderFinanceCustomerList() {
     </div>
   `;
   if (totals.excess > 0) {
-    html += `<div class="note-box"><b>Fazla Tahsilat</b>${fmt(totals.excess)} — müşterilerden alacaklarından fazla tahsil edilmiş.</div>`;
+    const excessClientNames = clients.filter((c) => c.totalSummary.customerExcess > 0).map((c) => c.client.name);
+    html += `<div class="note-box"><b>Fazla Tahsilat</b>${fmt(totals.excess)} — müşterilerden alacaklarından fazla tahsil edilmiş.${excessClientNames.length ? ` <span class="excess-who">${excessClientNames.map(escapeHtml).join(', ')}</span>` : ''}</div>`;
   }
 
   if (clients.length === 0) {
@@ -302,7 +303,8 @@ export async function renderFinanceVendorList() {
     </div>
   `;
   if (totals.excess > 0) {
-    html += `<div class="note-box"><b>Fazla Ödeme</b>${fmt(totals.excess)} — yüklenicilere borçlarından fazla ödeme yapılmış.</div>`;
+    const excessVendorNames = vendors.filter((v) => v.totalExcess > 0).map((v) => v.vendor);
+    html += `<div class="note-box"><b>Fazla Ödeme</b>${fmt(totals.excess)} — yüklenicilere borçlarından fazla ödeme yapılmış.${excessVendorNames.length ? ` <span class="excess-who">${excessVendorNames.map(escapeHtml).join(', ')}</span>` : ''}</div>`;
   }
 
   if (vendors.length === 0) {
@@ -347,7 +349,7 @@ export async function renderMediaTypeDetail({ mediaType }) {
     agg.getMediaTypeOverview(),
     agg.getVendorsForType(typeName)
   ]);
-  const t = overview.find((o) => o.mediaType === typeName);
+  const t = overview.find((o) => normKey(o.mediaType) === normKey(typeName));
 
   let html = '';
   if (t) {
@@ -783,16 +785,25 @@ export async function renderTvVendorList() {
   setContent(`<div class="list-loading">Yükleniyor…</div>`);
 
   const [media, records] = await Promise.all([repo.getAllMedia(), repo.getAllTvRistorno()]);
-  const tvVendors = new Set(media.filter((m) => calc.isTV(m.mediaType)).map((m) => m.vendor));
-  records.forEach((r) => tvVendors.add(r.vendor));
-  const vendorList = [...tvVendors].sort((a, b) => a.localeCompare(b, 'tr'));
+  // §birlesik-yazim: yüklenici adları normKey ile dedupe ediliyor — farklı
+  // yazımla kaydedilmiş aynı TV kanalı artık ayrı satır olarak görünmüyor.
+  const tvVendors = new Map(); // vendorKey -> ilk görülen yazım
+  media.filter((m) => calc.isTV(m.mediaType)).forEach((m) => {
+    const key = normKey(m.vendor);
+    if (key && !tvVendors.has(key)) tvVendors.set(key, (m.vendor || '').trim());
+  });
+  records.forEach((r) => {
+    const key = normKey(r.vendor);
+    if (key && !tvVendors.has(key)) tvVendors.set(key, (r.vendor || '').trim());
+  });
+  const vendorList = [...tvVendors.values()].sort((a, b) => a.localeCompare(b, 'tr'));
 
   let html = '';
   if (vendorList.length === 0) {
     html = emptyState(icon('monitor', { size: 32 }), 'Henüz TV yükleniciniz yok', 'Bir kampanyaya TV mecrası eklediğinde burada görünecek.');
   } else {
     html = vendorList.map((v) => {
-      const yearCount = records.filter((r) => r.vendor === v).length;
+      const yearCount = records.filter((r) => normKey(r.vendor) === normKey(v)).length;
       return `
       <div class="row-card" onclick="H.goto('/mecra/tv/${encodeURIComponent(v)}')">
         <div class="avatar" style="background:#F59E0B">${icon('monitor', { size: 18 })}</div>
@@ -815,7 +826,7 @@ export async function renderTvVendorYears({ vendor }) {
   `);
   setContent(`<div class="list-loading">Yükleniyor…</div>`);
 
-  const records = (await repo.getAllTvRistorno()).filter((r) => r.vendor === vendorName).sort((a, b) => b.year - a.year);
+  const records = (await repo.getAllTvRistorno()).filter((r) => normKey(r.vendor) === normKey(vendorName)).sort((a, b) => b.year - a.year);
 
   let html = '';
   if (records.length === 0) {
@@ -848,7 +859,7 @@ export async function openTvRistornoForm(vendorName, recordId) {
   };
   const suggestCalc = (year) => {
     return media
-      .filter((m) => calc.isTV(m.mediaType) && m.vendor === vendorName && effectiveYear(m) === String(year))
+      .filter((m) => calc.isTV(m.mediaType) && normKey(m.vendor) === normKey(vendorName) && effectiveYear(m) === String(year))
       .reduce((s, m) => s + calc.mediaRistorno(m), 0);
   };
 
