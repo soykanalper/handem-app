@@ -228,6 +228,11 @@ a{ color:inherit; }
 .note-box{ font-size:var(--fs-3); color:var(--ink); background:var(--bg-soft); border-radius:9px; padding:9px 11px; margin-top:4px; line-height:1.45; }
 .note-box b{ color:var(--ink-soft); font-weight:var(--fw-semibold); display:block; font-size:var(--fs-1); text-transform:uppercase; margin-bottom:3px; }
 
+/* §kime-ait: bir "Fazla Tahsilat"/"Fazla Ödeme" rakamının kime ait olduğu
+   biliniyorsa yanına eklenen, ince/soluk bir isim etiketi — .vat-sub.vat-off
+   ile aynı görsel dilde (italik, soluk renk), sadece bağımsız kullanılabilir. */
+.excess-who{ font-size:var(--fs-1); font-weight:500; font-style:italic; color:var(--ink-faint); }
+
 /* compact expandable "Detay" note control — a small link that reveals a
    focused write/read/delete area instead of a permanently-open text block
    cluttering the row (campaign, media, cheque, payment/collection notes). */
