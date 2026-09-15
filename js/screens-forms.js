@@ -369,15 +369,15 @@ export async function openMediaForm(campaignId, mediaId) {
     <h2>${media ? 'Mecra Kaydını Düzenle' : 'Yeni Mecra / Yüklenici'}</h2>
 
     <div class="field"><label>Mecra Türü *</label>
-      <select id="fMediaTypeSelect" ${manualMode ? 'hidden' : ''}>
+      <select id="fMediaTypeSelect" style="${manualMode ? 'display:none;' : ''}">
         ${repo.DEFAULT_MEDIA_TYPES.map((t) => `<option value="${escapeHtml(t)}" ${initialType === t ? 'selected' : ''}>${escapeHtml(t)}</option>`).join('')}
         <option value="__manual__">✏️ Listede yok, elle yazacağım</option>
       </select>
-      <input id="fMediaType" list="mediaTypeList" placeholder="Mecra türünü yaz…" value="${escapeHtml(initialType)}" ${manualMode ? '' : 'hidden'}>
+      <input id="fMediaType" list="mediaTypeList" placeholder="Mecra türünü yaz…" value="${escapeHtml(initialType)}" style="${manualMode ? '' : 'display:none;'}">
       ${datalist('mediaTypeList', mediaTypes)}
-      <div class="kalem-note" id="manualBackHint" ${manualMode ? '' : 'hidden'}>Listeye dönmek için <a href="#" id="backToMediaList">buraya dokun</a></div>
-      <div class="kalem-note" id="tvSubHint" ${isTVInitially ? '' : 'hidden'}>TV türü <span class="hint">(isteğe bağlı — sadece kalem etiketlerini kolaylaştırır)</span></div>
-      <div class="pills" id="tvSubRow" style="padding:2px 2px 0;" ${isTVInitially ? '' : 'hidden'}>
+      <div class="kalem-note" id="manualBackHint" style="${manualMode ? '' : 'display:none;'}">Listeye dönmek için <a href="#" id="backToMediaList">buraya dokun</a></div>
+      <div class="kalem-note" id="tvSubHint" style="${isTVInitially ? '' : 'display:none;'}">TV türü <span class="hint">(isteğe bağlı — sadece kalem etiketlerini kolaylaştırır)</span></div>
+      <div class="pills" id="tvSubRow" style="padding:2px 2px 0;${isTVInitially ? '' : 'display:none;'}">
         <button type="button" class="pill" data-sub="Sponsorluk">Sponsor</button>
         <button type="button" class="pill" data-sub="Banner">Banner</button>
         <button type="button" class="pill" data-sub="Kuşak">Kuşak</button>
@@ -400,7 +400,7 @@ export async function openMediaForm(campaignId, mediaId) {
           <span class="track"></span><span class="thumb"></span>
         </label>
       </div>
-      <div id="kalemBody" ${budgetOn ? '' : 'hidden'}>
+      <div id="kalemBody" style="${budgetOn ? '' : 'display:none;'}">
         <div class="kalem-note">Alış Tutarı bu kalemlerin toplamından otomatik hesaplanır — Satış Tutarı her zaman ayrı, tek kalem olarak elle girilir.</div>
         <div class="kalem-list" id="kalemList">${budgetItems.map(kalemRowHtml).join('')}</div>
         <button class="kalem-add" id="kalemAddBtn" type="button">+ Kalem Ekle</button>
@@ -488,13 +488,21 @@ export async function openMediaForm(campaignId, mediaId) {
       typeManual.dispatchEvent(new Event('change', { bubbles: true }));
     };
 
+    // Not: burada gizleme/gösterme her zaman .style.display ile yapılır,
+    // `hidden` attribute'u ile DEĞİL — çünkü #tvSubRow zaten .pills sınıfını
+    // taşıyor ve .pills{display:flex} kuralı (author CSS), tarayıcının
+    // varsayılan [hidden]{display:none} kuralını (user-agent CSS) ezip
+    // geçiyor; aynı çakışmaya düşmemek için hepsi aynı yöntemle yönetiliyor.
+    const showEl = (el, display) => { el.style.display = display; };
+    const hideEl = (el) => { el.style.display = 'none'; };
+
     typeSelect.addEventListener('change', () => {
       if (typeSelect.value === '__manual__') {
-        typeSelect.hidden = true;
-        typeManual.hidden = false;
-        manualHint.hidden = false;
-        subHint.hidden = true;
-        subRow.hidden = true;
+        hideEl(typeSelect);
+        showEl(typeManual, '');
+        showEl(manualHint, '');
+        hideEl(subHint);
+        hideEl(subRow);
         typeManual.value = '';
         typeManual.focus();
         typeManual.dispatchEvent(new Event('input', { bubbles: true }));
@@ -502,10 +510,8 @@ export async function openMediaForm(campaignId, mediaId) {
       } else {
         setResolvedType(typeSelect.value);
         const isTVSel = typeSelect.value === 'TV';
-        subHint.hidden = !isTVSel;
-        subRow.hidden = !isTVSel;
-        if (isTVSel) { highlightSub('Sponsorluk'); setKalemFlavor('Sponsorluk'); }
-        else { setKalemFlavor(null); }
+        if (isTVSel) { showEl(subHint, ''); showEl(subRow, 'flex'); highlightSub('Sponsorluk'); setKalemFlavor('Sponsorluk'); }
+        else { hideEl(subHint); hideEl(subRow); setKalemFlavor(null); }
       }
     });
     subPills.forEach((p) => {
@@ -515,13 +521,13 @@ export async function openMediaForm(campaignId, mediaId) {
     if (backLink) {
       backLink.addEventListener('click', (e) => {
         e.preventDefault();
-        typeManual.hidden = true;
-        manualHint.hidden = true;
-        typeSelect.hidden = false;
+        hideEl(typeManual);
+        hideEl(manualHint);
+        showEl(typeSelect, '');
         typeSelect.value = 'TV';
         setResolvedType('TV');
-        subHint.hidden = false;
-        subRow.hidden = false;
+        showEl(subHint, '');
+        showEl(subRow, 'flex');
         highlightSub('Sponsorluk');
         setKalemFlavor('Sponsorluk');
       });
@@ -555,13 +561,13 @@ export async function openMediaForm(campaignId, mediaId) {
 
     budgetToggle.addEventListener('change', () => {
       if (budgetToggle.checked) {
-        kalemBody.hidden = false;
+        showEl(kalemBody, '');
         purchaseEl.setAttribute('disabled', 'disabled');
         if (kalemItemsState.length === 0) kalemItemsState.push({ label: '1. ' + kalemUnit, amount: 0 });
         renderKalemRows();
         syncKalemTotal();
       } else {
-        kalemBody.hidden = true;
+        hideEl(kalemBody);
         purchaseEl.removeAttribute('disabled');
         update();
       }
