@@ -1,4 +1,4 @@
-const CACHE_NAME = 'handem-v27';
+const CACHE_NAME = 'handem-v28';
 const APP_SHELL = [
   './',
   './index.html',
@@ -37,9 +37,25 @@ const APP_SHELL = [
   './icons/logo-square.png'
 ];
 
+// §cache-bypass-fix: cache.addAll() fetches through the browser's normal HTTP
+// cache, so a file the browser already had cached from an earlier visit could
+// get copied into the NEW CACHE_NAME as-is — silently baking stale JS into a
+// "fresh" version and making every future update look like it installed but
+// never actually change anything (the exact bug reported: CACHE_NAME bumped,
+// "Yenile" banner shown and clicked, still old code). Fetching each file with
+// {cache:'reload'} forces a real network round-trip, bypassing HTTP cache, so
+// what lands in the new cache is always genuinely current. Files are fetched
+// individually (not with addAll) so one failed asset doesn't fail the whole
+// install.
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)).catch(() => {})
+    caches.open(CACHE_NAME).then((cache) =>
+      Promise.all(APP_SHELL.map((url) =>
+        fetch(url, { cache: 'reload' })
+          .then((res) => { if (res && res.ok) return cache.put(url, res); })
+          .catch(() => {})
+      ))
+    )
   );
   self.skipWaiting();
 });
