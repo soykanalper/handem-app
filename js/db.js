@@ -34,6 +34,35 @@ const STORES = {
 
 let dbPromise = null;
 
+// §db-donma-fix: DB_VERSION her yükseltildiğinde (yeni bir store eklendiğinde,
+// örn. v1→v2 randevu/fatura için), uygulama başka bir sekmede/pencerede zaten
+// AÇIKKEN tarayıcı IndexedDB'yi eski bağlantı açık kaldığı sürece yükseltmeyi
+// "blocked" durumunda sonsuza kadar bekletiyordu — kullanıcı için sessizce
+// donmuş bir uygulama olarak görünüyordu, hiçbir hata/mesaj çıkmıyordu.
+// İki parçalı kalıcı çözüm:
+//  1) Başarılı HER bağlantıya onversionchange takılıyor — ileride bir sonraki
+//     sürüm yükseltmesi geldiğinde bu sekme kendi bağlantısını GÖNÜLLÜ olarak
+//     kapatıyor, böylece yeni sekme asla bloklanmıyor (bloklanmanın kökten
+//     önlenmesi — bundan sonraki her güncelleme için).
+//  2) Yine de eski (bu düzeltmeden önceki kod ile açılmış) bir sekme varsa ve
+//     blok oluşursa, artık sessizce sonsuza kadar beklemek yerine kullanıcıya
+//     açık, eyleme geçirilebilir bir mesaj gösteriliyor (index.html'in DOM'u
+//     her zaman hazır olduğu için ui.js/app.js'e bağımlı değil).
+function showDbBlockedNotice() {
+  if (document.getElementById('dbBlockedNotice')) return;
+  const el = document.createElement('div');
+  el.id = 'dbBlockedNotice';
+  el.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(15,17,21,.92);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:28px;font-family:system-ui,-apple-system,sans-serif;gap:14px;';
+  el.innerHTML = `
+    <div style="font-size:32px;">⏳</div>
+    <div style="font-size:16px;font-weight:700;max-width:320px;">Uygulama başka bir sekmede/pencerede zaten açık</div>
+    <div style="font-size:13.5px;opacity:.85;max-width:320px;line-height:1.5;">Devam edebilmek için uygulamanın açık olduğu diğer tüm sekmeleri/pencereleri (telefonda arka plandaki kopyalar dahil) kapatıp aşağıdaki düğmeye bas.</div>
+    <button style="margin-top:4px;background:#fff;color:#111;border:none;border-radius:10px;padding:11px 20px;font-size:14px;font-weight:700;">Yeniden Dene</button>
+  `;
+  el.querySelector('button').onclick = () => location.reload();
+  document.body.appendChild(el);
+}
+
 export function openDB() {
   if (dbPromise) return dbPromise;
   dbPromise = new Promise((resolve, reject) => {
@@ -53,8 +82,16 @@ export function openDB() {
         }
       });
     };
-    req.onsuccess = (e) => resolve(e.target.result);
+    req.onsuccess = (e) => {
+      const db = e.target.result;
+      // Bu bağlantı ileride başka bir sekmede daha yeni bir sürüm açılmak
+      // istendiğinde kendini kapatsın — bir sonraki güncellemede blok
+      // oluşmasın diye (§db-donma-fix, madde 1).
+      db.onversionchange = () => { db.close(); };
+      resolve(db);
+    };
     req.onerror = (e) => reject(e.target.error);
+    req.onblocked = () => { showDbBlockedNotice(); };
   });
   return dbPromise;
 }
