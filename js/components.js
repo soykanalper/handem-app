@@ -44,9 +44,9 @@ export function campaignCardHtml({ campaign, summary, active, clientName, mediaB
     <div class="usage-tags">
       ${mediaByType.map((g) => `<span class="usage-tag"><span onclick="event.stopPropagation();H.goto('/finance/vendor/t/${encodeURIComponent(g.mediaType)}')" style="cursor:pointer;"><b>${escapeHtml(g.mediaType)}</b></span> <span class="vendors">${g.vendors.map((v) => `<span onclick="event.stopPropagation();H.goto('/finance/vendor/${encodeURIComponent(v)}')" style="cursor:pointer;text-decoration:underline;">${escapeHtml(v)}</span>`).join(', ')}</span></span>`).join('')}
     </div>` : ''}
-    <div class="cc-main-grid">
-      <div class="fi"><span class="label">Satış</span><span class="value">${fmtN(summary.totalSales)}</span></div>
+    <div class="cc-main-grid"${isAdmin() ? '' : ' style="grid-template-columns:1fr;"'}>
       ${isAdmin() ? `
+      <div class="fi"><span class="label">Satış</span><span class="value">${fmtN(summary.totalSales)}</span></div>
       <div class="fi"><span class="label">Alış</span><span class="value">${fmtN(summary.totalPurchase)}</span></div>
       <div class="fi amber"><span class="label">Ristorno</span><span class="value">${fmtN(summary.totalRistorno)}</span></div>
       <div class="fi primary"><span class="label">Ajans Ücreti</span><span class="value">${summary.agencyFee > 0 ? fmtN(summary.agencyFee) : '—'}</span></div>
@@ -83,12 +83,12 @@ export function mediaRowHtml(media, group = {}) {
         ${vatBadge(media.vatRate)}
       </div>
     </div>
-    <div class="mr-grid"${isAdmin() ? '' : ' style="grid-template-columns:1fr;"'}>
+    ${isAdmin() ? `
+    <div class="mr-grid">
       <div class="fi"><span class="label">Satış</span><span class="value">${fmtN(media.sales)}</span></div>
-      ${isAdmin() ? `
       <div class="fi"><span class="label">Alış</span><span class="value">${fmtN(media.purchase)}</span></div>
-      <div class="fi amber"><span class="label">Ristorno</span><span class="value">${fmtN(ristorno)}</span></div>` : ''}
-    </div>
+      <div class="fi amber"><span class="label">Ristorno</span><span class="value">${fmtN(ristorno)}</span></div>
+    </div>` : ''}
     <div class="mr-grid" style="margin-top:4px;">
       <div class="fi"><span class="label">Net Ödenecek (KDV Hariç)</span><span class="value">${fmtN(net)}</span></div>
       <div class="fi"><span class="label">Ödenen${group.shared ? ' (grup)' : ''}</span><span class="value">${groupPaid != null ? fmtN(groupPaid) : '—'}</span></div>

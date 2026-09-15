@@ -11,7 +11,7 @@ import { setTopbar, setContent, setActiveNav, setFabVisible, setFabAction, navig
 import { avatarHtml, campaignCardHtml, mediaRowHtml, payRowHtml, chequeRowHtml, reminderRowHtml, emptyState, vatDetailRow, vatBadge, kunyeCardHtml, invoiceSectionHtml } from './components.js';
 import { icon } from './icons.js';
 import { isCloudActive } from './cloud/bootstrap.js';
-import { isAdmin } from './cloud/team.js';
+import { isAdmin, isSunumModu } from './cloud/team.js';
 
 let customerSearch = '';
 
@@ -33,7 +33,7 @@ export async function renderHome() {
       <img src="icons/logo.png" alt="Hande'M" class="brand-logo-img">
     </div>
     <div class="right">
-      ${isCloudActive() ? `<button class="icon-btn" onclick="H.openAccountMenu()">${icon('users', { size: 16 })}</button>` : ''}
+      ${isCloudActive() ? `<button class="icon-btn${isSunumModu() ? ' sunum-on' : ''}" title="Kısa bas: Sunum Modu · Basılı tut: Hesap" onpointerdown="H.accountIconPointerDown()" onpointerup="H.accountIconPointerUp()" onpointerleave="H.accountIconPointerCancel()" onpointercancel="H.accountIconPointerCancel()">${icon('users', { size: 16 })}</button>` : ''}
       <button class="icon-btn" onclick="H.goto('/randevu')" title="Randevu Ajandası">${icon('calendar', { size: 16 })}</button>
       <button class="icon-btn bell" onclick="H.goto('/reminders')">${icon('bell', { size: 16 })}<span class="bell-badge" id="homeBellBadge" style="display:none;"></span></button>
     </div>
@@ -72,8 +72,7 @@ export async function renderHome() {
       <div class="si red"><div class="label">Kalan Tahsilat<div class="sub-label">KDV Dahil</div></div><div class="value">${fmtN(totals.customerRemaining)}</div></div>
     </div>
   ` : `
-    <div class="summary-strip hero">
-      <div class="si"><div class="label">Toplam Satış<div class="sub-label">KDV Hariç</div></div><div class="value">${fmtN(totals.totalSales)}</div></div>
+    <div class="summary-strip cols2 hero">
       <div class="si"><div class="label">Toplam Tahsilat</div><div class="value">${fmtN(totals.customerCollected)}</div></div>
       <div class="si red"><div class="label">Kalan Tahsilat<div class="sub-label">KDV Dahil</div></div><div class="value">${fmtN(totals.customerRemaining)}</div></div>
     </div>
@@ -520,12 +519,12 @@ export async function renderCampaignDetail({ campaignId }) {
 
     <div class="detail-card">
       <h3>Genel Finansal Özet</h3>
-      <div class="detail-row"><span class="k">Toplam Satış (KDV Hariç)</span><span class="v">${fmt(summary.totalSales)}</span></div>
       ${isAdmin() ? `
+      <div class="detail-row"><span class="k">Toplam Satış (KDV Hariç)</span><span class="v">${fmt(summary.totalSales)}</span></div>
       <div class="detail-row"><span class="k">Toplam Alış (KDV Hariç)</span><span class="v">${fmt(summary.totalPurchase)}</span></div>
       <div class="detail-row amber"><span class="k">Toplam Ristorno (KDV Hariç)</span><span class="v">${fmt(summary.totalRistorno)}</span></div>
       ${calc.hasAgencyFee(campaign) ? vatDetailRow('Ajans Ücreti', summary.agencyFee, campaign.agencyFeeVatRate, 'primary') : ''}
-      <div class="detail-row total green"><span class="k">Toplam Kâr (KDV Hariç)</span><span class="v">${fmt(summary.campaignProfit)}</span></div>` : ''}
+      <div class="detail-row total green"><span class="k">Toplam Kâr (KDV Hariç)</span><span class="v">${fmt(summary.campaignProfit)}</span></div>` : '<p class="hint">Finansal detaylar gizli.</p>'}
     </div>
 
     <div class="detail-card">
@@ -660,7 +659,7 @@ export async function renderMediaDetail({ mediaId }) {
     <div class="detail-card">
       <h3>Finansal Detay</h3>
       ${isAdmin() ? vatDetailRow('Alış', media.purchase, media.vatRate) : ''}
-      ${vatDetailRow('Satış', media.sales, media.vatRate)}
+      ${isAdmin() ? vatDetailRow('Satış', media.sales, media.vatRate) : ''}
       ${isAdmin() ? `<div class="detail-row amber"><span class="k">Ristorno % / Tutar</span><span class="v">%${fmtN(media.ristornoPercent)} · ${fmt(ristorno)}</span></div>` : ''}
       ${vatDetailRow('Net Ödenecek', net, media.vatRate)}
       ${isAdmin() ? `<div class="detail-row total green"><span class="k">Kâr (KDV Hariç)</span><span class="v">${fmt(profit)}</span></div>` : ''}

@@ -102,11 +102,12 @@ function mediaTypeCardHtml(t) {
         </div>
         <div class="chev">${icon('chevronRight', { size: 16 })}</div>
       </div>
-      <div class="mtype-grid"${isAdmin() ? '' : ' style="grid-template-columns:1fr;"'}>
-        ${isAdmin() ? `<div class="fi"><span class="label">Alış (KDV Hariç)</span><span class="value">${fmtN(t.totalPurchase)}</span></div>` : ''}
+      ${isAdmin() ? `
+      <div class="mtype-grid">
+        <div class="fi"><span class="label">Alış (KDV Hariç)</span><span class="value">${fmtN(t.totalPurchase)}</span></div>
         <div class="fi"><span class="label">Satış (KDV Hariç)</span><span class="value">${fmtN(t.totalSales)}</span></div>
-        ${isAdmin() ? `<div class="fi amber"><span class="label">Ristorno (KDV Hariç)</span><span class="value">${fmtN(t.totalRistorno)}</span></div>` : ''}
-      </div>
+        <div class="fi amber"><span class="label">Ristorno (KDV Hariç)</span><span class="value">${fmtN(t.totalRistorno)}</span></div>
+      </div>` : ''}
       <div class="mtype-grid" style="margin-top:6px;">
         <div class="fi"><span class="label">Borç (KDV Dahil)</span><span class="value">${fmtN(t.totalNetPayable)}</span></div>
         <div class="fi"><span class="label">Ödenen</span><span class="value">${fmtN(t.totalPaid)}</span></div>
@@ -263,11 +264,12 @@ export async function renderMediaTypeDetail({ mediaType }) {
   let html = '';
   if (t) {
     html += `
+      ${isAdmin() ? `
       <div class="summary-strip">
         <div class="si"><div class="label">Alış<div class="sub-label">KDV Hariç</div></div><div class="value">${fmtN(t.totalPurchase)}</div></div>
         <div class="si"><div class="label">Satış<div class="sub-label">KDV Hariç</div></div><div class="value">${fmtN(t.totalSales)}</div></div>
         <div class="si amber"><div class="label">Ristorno<div class="sub-label">KDV Hariç</div></div><div class="value">${fmtN(t.totalRistorno)}</div></div>
-      </div>
+      </div>` : ''}
       <div class="summary-strip">
         <div class="si"><div class="label">Borç<div class="sub-label">KDV Dahil</div></div><div class="value">${fmtN(t.totalNetPayable)}</div></div>
         <div class="si green"><div class="label">Ödenen</div><div class="value">${fmtN(t.totalPaid)}</div></div>
@@ -341,8 +343,7 @@ export async function renderFinanceVendorDetail({ vendor }) {
       <div class="si green"><div class="label">Kâr<div class="sub-label">KDV Hariç</div></div><div class="value">${fmtN(data.totalProfit)}</div></div>
     </div>
   ` : `
-    <div class="summary-strip cols4">
-      <div class="si"><div class="label">Satış<div class="sub-label">KDV Hariç</div></div><div class="value">${fmtN(data.totalSales)}</div></div>
+    <div class="summary-strip">
       <div class="si"><div class="label">Borç<div class="sub-label">KDV Dahil</div></div><div class="value">${fmtN(data.totalNetPayable)}</div></div>
       <div class="si green"><div class="label">Ödenen</div><div class="value">${fmtN(data.totalPaid)}</div></div>
       <div class="si red"><div class="label">Kalan</div><div class="value">${fmtN(data.totalRemaining)}</div></div>
@@ -369,7 +370,7 @@ export async function renderFinanceVendorDetail({ vendor }) {
         <div class="detail-row"><span class="k">Mecra</span><span class="v">${escapeHtml((c.mediaTypesInCampaign || []).join(', '))}</span></div>
         <div class="detail-divider"></div>
         ${isAdmin() ? `<div class="detail-row"><span class="k">Alış (KDV Hariç)</span><span class="v">${fmt(c.purchase)}</span></div>` : ''}
-        <div class="detail-row"><span class="k">Satış (KDV Hariç)</span><span class="v">${fmt(c.sales)}</span></div>
+        ${isAdmin() ? `<div class="detail-row"><span class="k">Satış (KDV Hariç)</span><span class="v">${fmt(c.sales)}</span></div>` : ''}
         ${isAdmin() ? `<div class="detail-row amber"><span class="k">Ristorno (KDV Hariç)</span><span class="v">${fmt(c.ristorno)}</span></div>` : ''}
         <div class="detail-row"><span class="k">Ödenecek (KDV Dahil)</span><span class="v">${fmt(c.netPayable)}</span></div>
         <div class="detail-row green"><span class="k">Ödenen</span><span class="v">${fmt(c.paid)}</span></div>
