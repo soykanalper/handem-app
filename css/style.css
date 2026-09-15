@@ -88,6 +88,9 @@ a{ color:inherit; }
 .icon-btn.bell{ position:relative; }
 .bell-badge{ position:absolute; top:2px; right:2px; min-width:15px; height:15px; padding:0 3px; border-radius:8px; background:var(--rose); color:#fff; font-size:9.5px; font-weight:var(--fw-bold); line-height:15px; text-align:center; display:flex; align-items:center; justify-content:center; }
 
+/* §kunye: VKN/IBAN yanındaki ufak "panoya kopyala" düğmesi. */
+.copy-btn{ background:var(--bg-soft); border:none; color:var(--primary-dark); padding:4px 6px; border-radius:7px; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; line-height:1; flex-shrink:0; }
+
 /* Home / Müşteriler topbar: the logo is the ONLY thing in this slot, and it
    is truly centered in the topbar regardless of what sits in .right — no
    hand-typed brand name is ever placed next to it.
