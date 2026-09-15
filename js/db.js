@@ -9,7 +9,10 @@
 import { uid } from './util.js';
 
 const DB_NAME = 'handem-db';
-const DB_VERSION = 1;
+// v2: added `appointments` (Randevu/Toplantı Ajandası) and `invoices`
+// (Fatura/Dekont ekleri) — yeni store'lar mevcut şemayı bozmuyor, sadece
+// onupgradeneeded tekrar çalışıp eksik store'ları ekliyor.
+const DB_VERSION = 2;
 
 const STORES = {
   clients: 'id',
@@ -23,6 +26,8 @@ const STORES = {
   payments: 'id',
   cheques: 'id',
   tvRistorno: 'id',
+  appointments: 'id',
+  invoices: 'id',
   outbox: 'id',
   meta: 'key'
 };

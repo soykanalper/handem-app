@@ -499,6 +499,120 @@ export async function saveVendorProfile(vendorName) {
 }
 
 // ============================================================================
+// FATURA / DEKONT (Invoice attachment) — §fatura-dekont
+// Müşteri ve Mecra/Yüklenici finans kartlarında ortak — kestiğimiz veya
+// aldığımız fatura/dekontu ekle/gör/sil. Çek deseninin sadeleştirilmiş
+// hâli: hareket geçmişi yok, tek satırlık kayıt + fotoğraf(lar).
+// entityType 'client' | 'vendor'; entityId müşteri için clientId, mecra
+// için yüklenici adı (çek/ödeme'deki aynı "vendor adıyla eşleştirme" deseni).
+// ============================================================================
+let invoicePhotos = []; // transient dataURL[] — formPhotos ile aynı desen, ayrı değişken
+
+function invoicePhotoSectionHtml() {
+  return `
+  <div class="field" style="margin-bottom:14px;">
+    <label>${icon('image', { size: 14, className: 'icon-inline' })} Fatura / Dekont Fotoğrafı</label>
+    <div class="photo-btns" id="invoicePhotoBtns">
+      <button type="button" class="btn small outline" onclick="H.captureInvoicePhoto('camera')">${icon('camera', { size: 15, className: 'icon-inline' })} Kameradan Çek</button>
+      <button type="button" class="btn small outline" onclick="H.captureInvoicePhoto('gallery')">${icon('image', { size: 15, className: 'icon-inline' })} Galeriden Seç</button>
+    </div>
+    <div id="invoicePhotoPreview"></div>
+  </div>`;
+}
+
+function renderInvoicePhotoPreview() {
+  const wrap = document.getElementById('invoicePhotoPreview');
+  const btns = document.getElementById('invoicePhotoBtns');
+  if (!wrap) return;
+  wrap.innerHTML = photoStripHtml(invoicePhotos, {
+    onRemove: (i) => `H.removeInvoicePhoto(${i})`,
+    onView: (src) => `H.viewPhotoDataUrl('${src}')`,
+    max: MAX_PHOTOS
+  });
+  if (btns) btns.style.display = invoicePhotos.length >= MAX_PHOTOS ? 'none' : 'flex';
+}
+
+export async function captureInvoicePhoto(source) {
+  if (invoicePhotos.length >= MAX_PHOTOS) { toast(`En fazla ${MAX_PHOTOS} fotoğraf eklenebilir`, 'error'); return; }
+  const dataUrl = await pickPhoto(source);
+  if (dataUrl) {
+    invoicePhotos.push(dataUrl);
+    renderInvoicePhotoPreview();
+  }
+}
+
+export function removeInvoicePhoto(index) {
+  invoicePhotos.splice(index, 1);
+  renderInvoicePhotoPreview();
+}
+
+export async function openInvoiceForm(entityType, entityId, invoiceId) {
+  const existing = invoiceId ? await repo.getInvoice(invoiceId) : null;
+  invoicePhotos = existing && existing.photos ? existing.photos.slice() : [];
+  const direction = existing ? existing.direction : 'kesilen';
+
+  const html = `
+    <button class="close-x" onclick="H.closeSheet()">✕</button>
+    <h2>${existing ? 'Fatura / Dekontu Düzenle' : 'Fatura / Dekont Ekle'}</h2>
+    <div class="field"><label>Yön</label>
+      <select id="fInvDirection">
+        <option value="kesilen" ${direction === 'kesilen' ? 'selected' : ''}>Kestiğimiz Fatura</option>
+        <option value="alinan" ${direction === 'alinan' ? 'selected' : ''}>Aldığımız Fatura / Dekont</option>
+      </select>
+    </div>
+    <div class="row2">
+      <div class="field"><label>Fatura / Dekont No</label><input id="fInvNo" value="${existing && existing.no ? escapeHtml(existing.no) : ''}"></div>
+      <div class="field"><label>Tarih</label><input id="fInvDate" type="date" value="${existing && existing.date ? existing.date : todayISO()}"></div>
+    </div>
+    <div class="field"><label>Tutar</label><input id="fInvAmount" type="number" step="0.01" value="${existing && existing.amount != null ? existing.amount : ''}"></div>
+    <div class="field">${noteFieldHtml('fInvNote', existing && existing.note ? existing.note : '')}</div>
+    ${invoicePhotoSectionHtml()}
+    <button class="btn primary" onclick="H.guard(this, () => H.saveInvoice('${entityType}','${jsAttr(entityId)}','${existing ? existing.id : ''}'))">Kaydet</button>
+    ${existing ? `<button class="btn danger" onclick="H.deleteInvoiceUI('${existing.id}')">Sil</button>` : ''}
+  `;
+  openSheet(html, () => {
+    renderInvoicePhotoPreview();
+  });
+}
+
+export async function saveInvoice(entityType, entityId, invoiceId) {
+  const direction = document.getElementById('fInvDirection').value;
+  const no = document.getElementById('fInvNo').value.trim();
+  const date = document.getElementById('fInvDate').value || '';
+  const amountRaw = document.getElementById('fInvAmount').value;
+  const amount = amountRaw === '' ? null : Number(amountRaw);
+  const note = document.getElementById('fInvNote').value.trim();
+
+  const data = {
+    entityType, entityId,
+    direction, no, date, amount, note,
+    photos: invoicePhotos.slice()
+  };
+  try {
+    if (invoiceId) {
+      await repo.updateInvoiceRecord(invoiceId, data);
+      toast('Fatura/dekont güncellendi', 'success');
+    } else {
+      await repo.createInvoiceRecord(data);
+      toast('Fatura/dekont eklendi', 'success');
+    }
+    invoicePhotos = [];
+    closeSheet();
+    refresh();
+  } catch (e) {
+    toast('Kaydedilemedi: ' + e.message, 'error');
+  }
+}
+
+export async function deleteInvoiceUI(invoiceId) {
+  if (!(await confirmDialog('Bu fatura/dekont kaydını silmek istiyor musun?'))) return;
+  await repo.deleteInvoiceRecord(invoiceId);
+  toast('Fatura/dekont silindi', 'success');
+  closeSheet();
+  refresh();
+}
+
+// ============================================================================
 // cheque sub-fields shared by collection + payment forms
 // ============================================================================
 // Tahsilat (Collection) side: a received cheque is *born* here — enter its
@@ -641,7 +755,10 @@ export async function openCollectionForm(ctx = {}) {
 
   const clientId = existing ? existing.clientId : ctx.clientId;
   const campaignId = existing ? existing.campaignId : ctx.campaignId;
-  const paymentType = existing ? existing.paymentType : ctx.presetPaymentType;
+  // §çek-varsayılan: yeni tahsilat açılışında Çek önden seçili gelsin —
+  // çek alanları ilk açılışta görünür olsun, kullanıcı Nakit/Havale seçerse
+  // wirePaymentTypeToggle zaten gizliyor (mevcut mantık).
+  const paymentType = existing ? existing.paymentType : (ctx.presetPaymentType || 'Çek');
 
   const clients = await repo.getClients();
   const campaigns = clientId ? await repo.getCampaignsForClient(clientId) : [];
@@ -819,7 +936,8 @@ export async function openPaymentForm(ctx = {}) {
   const clientId = existing ? existing.clientId : ctx.clientId;
   const campaignId = existing ? existing.campaignId : ctx.campaignId;
   const vendorPreset = existing ? existing.vendor : ctx.vendor;
-  const paymentType = existing ? existing.paymentType : ctx.presetPaymentType;
+  // §çek-varsayılan: yeni ödeme açılışında Çek önden seçili gelsin.
+  const paymentType = existing ? existing.paymentType : (ctx.presetPaymentType || 'Çek');
   const selectedChequeId = existing ? existing.chequeId : (ctx.presetChequeId || null);
 
   const clients = await repo.getClients();
@@ -1080,7 +1198,6 @@ export function openQuickAddMenu() {
     <h2>Ekle</h2>
     <div class="action-sheet-list">
       <button class="action-item" onclick="H.closeSheet();H.openCustomerForm()"><span class="ico">${icon('users', { size: 18 })}</span>Yeni Müşteri</button>
-      <button class="action-item" onclick="H.quickNewProduct()"><span class="ico">${icon('package', { size: 18 })}</span>Yeni Ürün</button>
       <button class="action-item" onclick="H.quickNewCampaign()"><span class="ico">${icon('megaphone', { size: 18 })}</span>Yeni Kampanya</button>
       <button class="action-item" onclick="H.closeSheet();H.openCollectionForm({})"><span class="ico">${icon('banknote', { size: 18 })}</span>Tahsilat Ekle</button>
       <button class="action-item" onclick="H.closeSheet();H.openPaymentForm({})"><span class="ico">${icon('landmark', { size: 18 })}</span>Ödeme Ekle</button>
@@ -1165,20 +1282,58 @@ export async function quickNewProductConfirm() {
   openProductForm(client.id);
 }
 
+// §tek-tuslu-kampanya: eski akış (Müşteri/Ürün seç → boş Kampanya formu aç)
+// kullanıcıyı sayfa sayfa dolaştırıyordu. Artık tek sheet'te müşteri, ürün,
+// kampanya adı VE isteğe bağlı olarak ilk mecra/yüklenici kaydı (mecra türü,
+// yüklenici, iş türü, alış, satış, KDV, ristorno) tek seferde girilip TEK
+// dokunuşla kaydediliyor — hiçbir alan zorunlu değil (Müşteri hariç), boş
+// bırakılan mecra alanları varsa kampanya mecrasız oluşur, daha sonra
+// Kampanya Detayı'ndan eklenebilir/silinebilir (mevcut yetenek, değişmedi).
 export async function quickNewCampaign() {
-  const clients = await repo.getClients();
+  const [clients, mediaTypes, vendors, workTypes] = await Promise.all([
+    repo.getClients(), repo.getAllMediaTypeNames(), repo.getAllVendorNames(), repo.getAllWorkTypeNames()
+  ]);
   const html = `
     <button class="close-x" onclick="H.closeSheet()">✕</button>
-    <h2>Hangi Ürün İçin?</h2>
-    <div class="field"><label>Müşteri</label>
+    <h2>Yeni Kampanya</h2>
+    <div class="field"><label>Müşteri *</label>
       <input id="qcClient" list="qcClientList" placeholder="Var olan bir müşteri seç veya yeni bir isim yaz">
       ${datalist('qcClientList', clients.map((c) => c.name))}
     </div>
     <div class="field"><label>Ürün</label>
-      <input id="qcProduct" list="qcProductList" placeholder="Önce müşteri seç, sonra ürün seç veya yeni yaz">
+      <input id="qcProduct" list="qcProductList" placeholder="Boş bırakılırsa kampanya adı kullanılır">
       ${datalist('qcProductList', [])}
     </div>
-    <button class="btn primary" onclick="H.guard(this, () => H.quickNewCampaignConfirm())">Devam Et</button>
+    <div class="field"><label>Kampanya Adı</label>
+      <input id="qcCampName" placeholder="Boş bırakılırsa ürün adı kullanılır">
+    </div>
+    <div class="detail-divider" style="margin:12px 0;"></div>
+    <p class="hint" style="margin:0 0 10px;">${icon('monitor', { size: 13, className: 'icon-inline' })} İstersen ilk mecra/yüklenici kaydını da hemen ekle — istemezsen boş bırak, kampanyanın içinden daha sonra eklersin.</p>
+    <div class="field"><label>Mecra Türü</label>
+      <input id="qcMediaType" list="qcMediaTypeList" placeholder="TV, Radyo, Dijital…">
+      ${datalist('qcMediaTypeList', mediaTypes)}
+    </div>
+    <div class="field"><label>Yüklenici</label>
+      <input id="qcVendor" list="qcVendorList" placeholder="Örn: Show TV">
+      ${datalist('qcVendorList', vendors)}
+    </div>
+    <div class="field"><label>İş Türü</label>
+      <input id="qcWorkType" list="qcWorkTypeList" placeholder="Reklam, Sponsorluk…">
+      ${datalist('qcWorkTypeList', workTypes)}
+    </div>
+    <div class="row2">
+      <div class="field"><label>Alış Tutarı <span class="hint">(KDV Hariç)</span></label><input id="qcPurchase" type="number" step="0.01"></div>
+      <div class="field"><label>Satış Tutarı <span class="hint">(KDV Hariç)</span></label><input id="qcSales" type="number" step="0.01"></div>
+    </div>
+    <div class="row2">
+      <div class="field"><label>Ristorno %</label><input id="qcRistorno" type="number" step="0.01" value="0"></div>
+      <div class="field"><label>KDV</label>
+        <select id="qcVat">
+          ${calc.VAT_RATES.map((r) => `<option value="${r.value}">${r.label}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <button class="btn primary" onclick="H.guard(this, () => H.quickNewCampaignConfirm())">Kaydet</button>
   `;
   openSheet(html, (sheet) => {
     // Müşteri alanı, listedeki bir isimle TAM eşleşince (mevcut müşteri
@@ -1200,13 +1355,59 @@ export async function quickNewCampaign() {
 
 export async function quickNewCampaignConfirm() {
   const clientName = document.getElementById('qcClient').value.trim();
-  const productName = document.getElementById('qcProduct').value.trim();
+  let productName = document.getElementById('qcProduct').value.trim();
+  let campName = document.getElementById('qcCampName').value.trim();
+  const mediaType = document.getElementById('qcMediaType').value.trim();
+  const vendor = document.getElementById('qcVendor').value.trim();
+  const workType = document.getElementById('qcWorkType').value.trim();
+  const purchase = document.getElementById('qcPurchase').value;
+  const sales = document.getElementById('qcSales').value;
+  const ristornoPercent = document.getElementById('qcRistorno').value;
+  const vatRateRaw = document.getElementById('qcVat').value;
+
   if (!clientName) { toast('Müşteri adını seç veya yaz', 'error'); return; }
-  if (!productName) { toast('Ürün adını seç veya yaz', 'error'); return; }
+  // Kampanya adı / ürün adı birbirinden türetilebilir — ikisi de boşsa kaydet
+  // deyince ilerlemesin, en az biri girilsin (openCampaignForm'daki gibi).
+  if (!productName && !campName) { toast('Ürün adı veya kampanya adı yaz', 'error'); return; }
+  if (!productName) productName = campName;
+  if (!campName) campName = '';
+
+  // Mecra alanları ya HİÇ doldurulmamış (kampanya mecrasız oluşur) ya da
+  // gereken 5 alan (mecra türü/yüklenici/iş türü/alış/satış) TAMAMEN dolu
+  // olmalı — yarım kalan bir mecra kaydı sessizce kaybolmasın.
+  const mediaFilled = [mediaType, vendor, workType, purchase, sales].some((v) => v !== '');
+  const mediaComplete = mediaType && vendor && workType && purchase !== '' && sales !== '';
+  if (mediaFilled && !mediaComplete) {
+    toast('Mecra eklemek istiyorsan Mecra Türü, Yüklenici, İş Türü, Alış ve Satış tutarlarının hepsini gir (ya da hepsini boş bırak)', 'error');
+    return;
+  }
+
   const client = await resolveOrCreateClient(clientName);
   const product = await resolveOrCreateProduct(client.id, productName);
+  const startDate = todayISO();
+  const endDate = addDays(startDate, 30);
+  const campaign = await repo.createCampaign({
+    clientId: client.id, productId: product.id,
+    clientName: client.name, productName: product.name,
+    name: campName, startDate, endDate, note: ''
+  });
+
+  if (mediaComplete) {
+    const vatRate = vatRateRaw === '' ? null : Number(vatRateRaw);
+    await Promise.all([repo.addMediaTypeName(mediaType), repo.addVendorName(vendor), repo.addWorkTypeName(workType)]);
+    await repo.createMedia({
+      campaignId: campaign.id,
+      campaignName: campaign.name || campaign.productName,
+      clientId: client.id, clientName: client.name, productId: product.id,
+      mediaType, vendor, workType,
+      purchase: Number(purchase), sales: Number(sales), ristornoPercent: Number(ristornoPercent) || 0,
+      vatRate, startDate: '', endDate: '', note: ''
+    });
+  }
+
   closeSheet();
-  openCampaignForm(client.id, product.id);
+  toast('Kampanya eklendi', 'success');
+  navigate('/campaigns/' + campaign.id);
 }
 
 // §nav-redesign: "Mecralar" area's real "add" action — a new mecra/vendor

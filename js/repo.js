@@ -248,3 +248,34 @@ export async function cascadeDeleteClient(clientId) {
   await Promise.all(products.map((p) => cascadeDeleteProduct(p.id)));
   await deleteClient(clientId);
 }
+
+// -------- fatura / dekont (invoice attachments) -------------------------------
+// Müşteri/Mecra Finans kartlarındaki basit fatura-dekont ekleme alanı — çek
+// deseninin sadeleştirilmiş hâli (hareket geçmişi yok, sadece ekle/gör/sil).
+// entityType 'client' | 'vendor'; entityId müşteri için clientId, mecra için
+// yüklenici adı (çek/ödeme'deki vendor-adı-ile-eşleştirme deseniyle aynı).
+export const getAllInvoices = () => dbGetAll('invoices');
+export const getInvoice = (id) => dbGet('invoices', id);
+export const createInvoiceRecord = (data) => createEntity('invoices', data);
+export const updateInvoiceRecord = (id, patch) => updateEntity('invoices', id, patch);
+export const deleteInvoiceRecord = (id) => softDeleteEntity('invoices', id);
+
+export async function getInvoicesForClient(clientId) {
+  const all = await getAllInvoices();
+  return all.filter((i) => i.entityType === 'client' && i.entityId === clientId);
+}
+export async function getInvoicesForVendor(vendorName) {
+  const all = await getAllInvoices();
+  return all.filter((i) => i.entityType === 'vendor' && i.entityId === vendorName);
+}
+
+// -------- randevu / toplantı ajandası ------------------------------------------
+// Basit ajanda kaydı — kişi/kurum, konu, tarih+saat, katılımcılar, not, ve
+// sonradan girilebilen sonuç notu. Geçmiş kayıtlar hiçbir zaman silinmez
+// (soft delete dışında), Geçmiş Kampanyalar mantığıyla aynı: tarihe göre
+// ileri/geri gezilebilir bir liste.
+export const getAllAppointments = () => dbGetAll('appointments');
+export const getAppointment = (id) => dbGet('appointments', id);
+export const createAppointment = (data) => createEntity('appointments', data);
+export const updateAppointment = (id, patch) => updateEntity('appointments', id, patch);
+export const deleteAppointment = (id) => softDeleteEntity('appointments', id);

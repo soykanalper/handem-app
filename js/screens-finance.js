@@ -7,7 +7,7 @@ import * as calc from './calc.js';
 import * as agg from './aggregate.js';
 import { fmt, fmtN, formatDate, escapeHtml, jsAttr, todayISO, toast } from './util.js';
 import { setTopbar, setContent, setActiveNav, setFabVisible, setFabAction, navigate, refresh, openSheet, closeSheet, openLightbox, confirmDialog } from './ui.js';
-import { avatarHtml, payRowHtml, chequeRowHtml, chequeStatusChip, chequeUsedFragment, emptyState, photoStripHtml, photoGalleryHtml, kunyeCardHtml } from './components.js';
+import { avatarHtml, payRowHtml, chequeRowHtml, chequeStatusChip, chequeUsedFragment, emptyState, photoStripHtml, photoGalleryHtml, kunyeCardHtml, invoiceSectionHtml } from './components.js';
 import { icon } from './icons.js';
 import { isAdmin } from './cloud/team.js';
 
@@ -50,7 +50,7 @@ export async function renderFinanceCustomerList() {
   let html = tabStrip('customer');
   html += `
     <div class="summary-strip">
-      <div class="si"><div class="label">Toplam Alacak (KDV Dahil)</div><div class="value">${fmtN(totals.receivable)}</div></div>
+      <div class="si"><div class="label">Toplam Alacak<div class="sub-label">KDV Dahil</div></div><div class="value">${fmtN(totals.receivable)}</div></div>
       <div class="si green"><div class="label">Tahsil Edilen</div><div class="value">${fmtN(totals.collected)}</div></div>
       <div class="si red"><div class="label">Kalan</div><div class="value">${fmtN(totals.remaining)}</div></div>
     </div>
@@ -125,7 +125,7 @@ async function vendorHierarchyBody() {
 
   let html = `
     <div class="summary-strip">
-      <div class="si"><div class="label">Toplam Borç (KDV Dahil)</div><div class="value">${fmtN(totals.debt)}</div></div>
+      <div class="si"><div class="label">Toplam Borç<div class="sub-label">KDV Dahil</div></div><div class="value">${fmtN(totals.debt)}</div></div>
       <div class="si green"><div class="label">Ödenen</div><div class="value">${fmtN(totals.paid)}</div></div>
       <div class="si red"><div class="label">Kalan</div><div class="value">${fmtN(totals.remaining)}</div></div>
     </div>
@@ -213,7 +213,7 @@ export async function renderFinanceVendorList() {
   let html = tabStrip('mecra');
   html += `
     <div class="summary-strip">
-      <div class="si"><div class="label">Toplam Borç (KDV Dahil)</div><div class="value">${fmtN(totals.debt)}</div></div>
+      <div class="si"><div class="label">Toplam Borç<div class="sub-label">KDV Dahil</div></div><div class="value">${fmtN(totals.debt)}</div></div>
       <div class="si green"><div class="label">Ödenen</div><div class="value">${fmtN(totals.paid)}</div></div>
       <div class="si red"><div class="label">Kalan</div><div class="value">${fmtN(totals.remaining)}</div></div>
     </div>
@@ -264,12 +264,12 @@ export async function renderMediaTypeDetail({ mediaType }) {
   if (t) {
     html += `
       <div class="summary-strip">
-        <div class="si"><div class="label">Alış (KDV Hariç)</div><div class="value">${fmtN(t.totalPurchase)}</div></div>
-        <div class="si"><div class="label">Satış (KDV Hariç)</div><div class="value">${fmtN(t.totalSales)}</div></div>
-        <div class="si amber"><div class="label">Ristorno (KDV Hariç)</div><div class="value">${fmtN(t.totalRistorno)}</div></div>
+        <div class="si"><div class="label">Alış<div class="sub-label">KDV Hariç</div></div><div class="value">${fmtN(t.totalPurchase)}</div></div>
+        <div class="si"><div class="label">Satış<div class="sub-label">KDV Hariç</div></div><div class="value">${fmtN(t.totalSales)}</div></div>
+        <div class="si amber"><div class="label">Ristorno<div class="sub-label">KDV Hariç</div></div><div class="value">${fmtN(t.totalRistorno)}</div></div>
       </div>
       <div class="summary-strip">
-        <div class="si"><div class="label">Borç (KDV Dahil)</div><div class="value">${fmtN(t.totalNetPayable)}</div></div>
+        <div class="si"><div class="label">Borç<div class="sub-label">KDV Dahil</div></div><div class="value">${fmtN(t.totalNetPayable)}</div></div>
         <div class="si green"><div class="label">Ödenen</div><div class="value">${fmtN(t.totalPaid)}</div></div>
         <div class="si red"><div class="label">Kalan</div><div class="value">${fmtN(t.totalRemaining)}</div></div>
       </div>
@@ -315,10 +315,11 @@ export async function renderFinanceVendorDetail({ vendor }) {
   `);
   setContent(`<div class="list-loading">Yükleniyor…</div>`);
 
-  const [data, vendorCheques, vendorProfile] = await Promise.all([
+  const [data, vendorCheques, vendorProfile, vendorInvoices] = await Promise.all([
     agg.getVendorAggregate(vendorName),
     repo.getChequesForVendor(vendorName),
-    repo.getVendorByName(vendorName)
+    repo.getVendorByName(vendorName),
+    repo.getInvoicesForVendor(vendorName)
   ]);
 
   let html = '';
@@ -329,20 +330,20 @@ export async function renderFinanceVendorDetail({ vendor }) {
   // net payable/paid/remaining/profit.
   html += isAdmin() ? `
     <div class="summary-strip">
-      <div class="si"><div class="label">Alış (KDV Hariç)</div><div class="value">${fmtN(data.totalPurchase)}</div></div>
-      <div class="si"><div class="label">Satış (KDV Hariç)</div><div class="value">${fmtN(data.totalSales)}</div></div>
-      <div class="si amber"><div class="label">Ristorno (KDV Hariç)</div><div class="value">${fmtN(data.totalRistorno)}</div></div>
+      <div class="si"><div class="label">Alış<div class="sub-label">KDV Hariç</div></div><div class="value">${fmtN(data.totalPurchase)}</div></div>
+      <div class="si"><div class="label">Satış<div class="sub-label">KDV Hariç</div></div><div class="value">${fmtN(data.totalSales)}</div></div>
+      <div class="si amber"><div class="label">Ristorno<div class="sub-label">KDV Hariç</div></div><div class="value">${fmtN(data.totalRistorno)}</div></div>
     </div>
     <div class="summary-strip cols4">
-      <div class="si"><div class="label">Borç (KDV Dahil)</div><div class="value">${fmtN(data.totalNetPayable)}</div></div>
+      <div class="si"><div class="label">Borç<div class="sub-label">KDV Dahil</div></div><div class="value">${fmtN(data.totalNetPayable)}</div></div>
       <div class="si green"><div class="label">Ödenen</div><div class="value">${fmtN(data.totalPaid)}</div></div>
       <div class="si red"><div class="label">Kalan</div><div class="value">${fmtN(data.totalRemaining)}</div></div>
-      <div class="si green"><div class="label">Kâr (KDV Hariç)</div><div class="value">${fmtN(data.totalProfit)}</div></div>
+      <div class="si green"><div class="label">Kâr<div class="sub-label">KDV Hariç</div></div><div class="value">${fmtN(data.totalProfit)}</div></div>
     </div>
   ` : `
     <div class="summary-strip cols4">
-      <div class="si"><div class="label">Satış (KDV Hariç)</div><div class="value">${fmtN(data.totalSales)}</div></div>
-      <div class="si"><div class="label">Borç (KDV Dahil)</div><div class="value">${fmtN(data.totalNetPayable)}</div></div>
+      <div class="si"><div class="label">Satış<div class="sub-label">KDV Hariç</div></div><div class="value">${fmtN(data.totalSales)}</div></div>
+      <div class="si"><div class="label">Borç<div class="sub-label">KDV Dahil</div></div><div class="value">${fmtN(data.totalNetPayable)}</div></div>
       <div class="si green"><div class="label">Ödenen</div><div class="value">${fmtN(data.totalPaid)}</div></div>
       <div class="si red"><div class="label">Kalan</div><div class="value">${fmtN(data.totalRemaining)}</div></div>
     </div>
@@ -397,6 +398,9 @@ export async function renderFinanceVendorDetail({ vendor }) {
     const sortedCheques = [...vendorCheques].sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || ''));
     html += sortedCheques.map((c) => chequeRowHtml(c, { onDelete: (cc) => `H.deleteChequeRecord('${cc.id}')` })).join('');
   }
+
+  // §fatura-dekont: kestiğimiz/aldığımız fatura-dekont ekleri.
+  html += invoiceSectionHtml(vendorInvoices, 'vendor', vendorName);
 
   setContent(html);
 }

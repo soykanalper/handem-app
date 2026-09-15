@@ -8,7 +8,7 @@ import * as agg from './aggregate.js';
 import * as reminders from './reminders.js';
 import { fmt, fmtN, formatDate, escapeHtml, jsAttr, todayISO, hashColor, initials, toast } from './util.js';
 import { setTopbar, setContent, setActiveNav, setFabVisible, setFabAction, navigate, goBack } from './ui.js';
-import { avatarHtml, campaignCardHtml, mediaRowHtml, payRowHtml, chequeRowHtml, reminderRowHtml, emptyState, vatDetailRow, vatBadge, kunyeCardHtml } from './components.js';
+import { avatarHtml, campaignCardHtml, mediaRowHtml, payRowHtml, chequeRowHtml, reminderRowHtml, emptyState, vatDetailRow, vatBadge, kunyeCardHtml, invoiceSectionHtml } from './components.js';
 import { icon } from './icons.js';
 import { isCloudActive } from './cloud/bootstrap.js';
 import { isAdmin } from './cloud/team.js';
@@ -34,6 +34,7 @@ export async function renderHome() {
     </div>
     <div class="right">
       ${isCloudActive() ? `<button class="icon-btn" onclick="H.openAccountMenu()">${icon('users', { size: 16 })}</button>` : ''}
+      <button class="icon-btn" onclick="H.goto('/randevu')" title="Randevu Ajandası">${icon('calendar', { size: 16 })}</button>
       <button class="icon-btn bell" onclick="H.goto('/reminders')">${icon('bell', { size: 16 })}<span class="bell-badge" id="homeBellBadge" style="display:none;"></span></button>
     </div>
   `, 'brand-centered');
@@ -44,8 +45,8 @@ export async function renderHome() {
   // §takip: rozet sayısı için ekstra tek bir çek sorgusu yeterli — clients
   // zaten yukarıda getBusinessOverview() ile çekildiği için buildReminders()
   // burada yeniden hiçbir kampanya/müşteri sorgusu yapmıyor (bkz. reminders.js).
-  const [dueCheques, dismissedKeys] = await Promise.all([repo.getAllCheques(), reminders.getDismissedKeys()]);
-  const reminderCount = reminders.buildReminders(dueCheques, clients).filter((r) => !dismissedKeys.has(r.dismissKey)).length;
+  const [dueCheques, dismissedKeys, allAppointments] = await Promise.all([repo.getAllCheques(), reminders.getDismissedKeys(), repo.getAllAppointments()]);
+  const reminderCount = reminders.buildReminders(dueCheques, clients, allAppointments).filter((r) => !dismissedKeys.has(r.dismissKey)).length;
   const bellBadgeEl = document.getElementById('homeBellBadge');
   if (bellBadgeEl) {
     bellBadgeEl.style.display = reminderCount > 0 ? 'flex' : 'none';
@@ -61,20 +62,20 @@ export async function renderHome() {
   // değildir), Kalan Tahsilat ise KDV DAHİL alacak üzerinden hesaplanır.
   let html = isAdmin() ? `
     <div class="summary-strip cols4 hero">
-      <div class="si"><div class="label">Toplam Alış (KDV Hariç)</div><div class="value">${fmtN(totals.totalPurchase)}</div></div>
-      <div class="si"><div class="label">Toplam Satış (KDV Hariç)</div><div class="value">${fmtN(totals.totalSales)}</div></div>
-      <div class="si amber"><div class="label">Toplam Ristorno (KDV Hariç)</div><div class="value">${fmtN(totals.totalRistorno)}</div></div>
-      <div class="si profit"><div class="label">Toplam Kâr (KDV Hariç)</div><div class="value">${fmtN(totals.campaignProfit)}</div></div>
+      <div class="si"><div class="label">Toplam Alış<div class="sub-label">KDV Hariç</div></div><div class="value">${fmtN(totals.totalPurchase)}</div></div>
+      <div class="si"><div class="label">Toplam Satış<div class="sub-label">KDV Hariç</div></div><div class="value">${fmtN(totals.totalSales)}</div></div>
+      <div class="si amber"><div class="label">Toplam Ristorno<div class="sub-label">KDV Hariç</div></div><div class="value">${fmtN(totals.totalRistorno)}</div></div>
+      <div class="si profit"><div class="label">Toplam Kâr<div class="sub-label">KDV Hariç</div></div><div class="value">${fmtN(totals.campaignProfit)}</div></div>
     </div>
     <div class="summary-strip cols2 hero">
       <div class="si"><div class="label">Toplam Tahsilat</div><div class="value">${fmtN(totals.customerCollected)}</div></div>
-      <div class="si red"><div class="label">Kalan Tahsilat (KDV Dahil)</div><div class="value">${fmtN(totals.customerRemaining)}</div></div>
+      <div class="si red"><div class="label">Kalan Tahsilat<div class="sub-label">KDV Dahil</div></div><div class="value">${fmtN(totals.customerRemaining)}</div></div>
     </div>
   ` : `
     <div class="summary-strip hero">
-      <div class="si"><div class="label">Toplam Satış (KDV Hariç)</div><div class="value">${fmtN(totals.totalSales)}</div></div>
+      <div class="si"><div class="label">Toplam Satış<div class="sub-label">KDV Hariç</div></div><div class="value">${fmtN(totals.totalSales)}</div></div>
       <div class="si"><div class="label">Toplam Tahsilat</div><div class="value">${fmtN(totals.customerCollected)}</div></div>
-      <div class="si red"><div class="label">Kalan Tahsilat (KDV Dahil)</div><div class="value">${fmtN(totals.customerRemaining)}</div></div>
+      <div class="si red"><div class="label">Kalan Tahsilat<div class="sub-label">KDV Dahil</div></div><div class="value">${fmtN(totals.customerRemaining)}</div></div>
     </div>
   `;
   if (totals.customerExcess > 0) {
@@ -87,7 +88,7 @@ export async function renderHome() {
   // doğrudan cevap versin diye. Müşteri bazlı gezinme "Müşteriler" alt nav
   // sekmesinde aynen duruyor, hiçbir sayfa yapısı değişmedi — sadece burası.
   const activeCampaigns = agg.activeCampaignsFromClients(clients);
-  html += `<div class="section-title"><span class="icon-inline">${icon('megaphone', { size: 13 })} Aktif Kampanyalar · en son başlayan üstte</span><span class="link" onclick="H.goto('/campaigns/past')">${icon('archive', { size: 12, className: 'icon-inline' })} Geçmiş</span></div>`;
+  html += `<div class="section-title"><span class="icon-inline">${icon('megaphone', { size: 13 })} Aktif Kampanyalar</span><span class="link" onclick="H.goto('/campaigns/past')">${icon('archive', { size: 12, className: 'icon-inline' })} Geçmiş</span></div>`;
 
   if (activeCampaigns.length === 0) {
     html += emptyState(icon('megaphone', { size: 32 }), 'Aktif kampanya yok', 'Bir müşteriye kampanya ekleyince burada görünecek.');
@@ -270,17 +271,18 @@ export async function renderClientDetail({ clientId }) {
   `);
   setContent(`<div class="list-loading">Yükleniyor…</div>`);
 
-  const [products, aggData, collections] = await Promise.all([
+  const [products, aggData, collections, clientInvoices] = await Promise.all([
     repo.getProductsForClient(clientId),
     agg.getClientAggregate(clientId),
-    repo.getCollectionsForClient(clientId)
+    repo.getCollectionsForClient(clientId),
+    repo.getInvoicesForClient(clientId)
   ]);
   products.sort((a, b) => a.name.localeCompare(b.name, 'tr'));
 
   const s = aggData.totalSummary;
   let html = `
     <div class="summary-strip">
-      <div class="si"><div class="label">Alacak (KDV Dahil)</div><div class="value">${fmtN(s.customerReceivable)}</div></div>
+      <div class="si"><div class="label">Alacak<div class="sub-label">KDV Dahil</div></div><div class="value">${fmtN(s.customerReceivable)}</div></div>
       <div class="si green"><div class="label">Tahsil</div><div class="value">${fmtN(s.customerCollected)}</div></div>
       <div class="si red"><div class="label">Kalan</div><div class="value">${fmtN(s.customerRemaining)}</div></div>
     </div>
@@ -360,6 +362,9 @@ export async function renderClientDetail({ clientId }) {
     const sortedCheques = [...clientCheques].sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || ''));
     html += sortedCheques.map((c) => chequeRowHtml(c, { onDelete: (cc) => `H.deleteChequeRecord('${cc.id}')` })).join('');
   }
+
+  // §fatura-dekont: kestiğimiz/aldığımız fatura-dekont ekleri.
+  html += invoiceSectionHtml(clientInvoices, 'client', client.id);
 
   html += `<button class="btn danger" onclick="H.deleteCustomer('${client.id}')">Müşteriyi Sil</button>`;
 
@@ -492,7 +497,7 @@ export async function renderCampaignDetail({ campaignId }) {
     html += `
       <div class="profit-banner">
         <div>
-          <div class="label">Toplam Kâr (KDV Hariç)</div>
+          <div class="label">Toplam Kâr<div class="sub-label">KDV Hariç</div></div>
           <div class="value">${fmt(summary.campaignProfit)}</div>
         </div>
         <div class="emoji">${icon('trendingUp', { size: 30 })}</div>

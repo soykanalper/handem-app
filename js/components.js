@@ -169,7 +169,7 @@ export function chequeRowHtml(cheque, { onDelete, urgent } = {}) {
 // X çıkar (chequeRowHtml/payRowHtml'deki aynı .pay-del düğmesi), o satırı
 // kalıcı olarak kapatır.
 export function reminderRowHtml(r, { onDismiss } = {}) {
-  const iconName = r.type === 'cheque' ? 'receipt' : 'megaphone';
+  const iconName = r.type === 'cheque' ? 'receipt' : (r.type === 'appointment' ? 'calendar' : 'megaphone');
   return `
   <div class="row-card${r.overdue ? ' urgent' : ''}" onclick="H.goto('${r.link}')">
     <div class="avatar" style="background:${r.overdue ? 'var(--rose-bg)' : 'var(--bg-soft)'};color:${r.overdue ? 'var(--rose-dark)' : 'var(--primary-dark)'}">${icon(iconName, { size: 16 })}</div>
@@ -264,4 +264,65 @@ export function kunyeCardHtml(entity) {
     ${iban ? `<div class="detail-row"><span class="k">IBAN</span><span class="v" style="display:flex;align-items:center;gap:6px;">${escapeHtml(iban)}<button type="button" class="copy-btn" onclick="event.stopPropagation();H.copyToClipboard('${jsAttr(iban)}')" title="Kopyala">${icon('copy', { size: 13 })}</button></span></div>` : ''}
     ${stampPhoto ? `<div class="field" style="margin-top:6px;"><label>Kaşe</label>${photoGalleryHtml([stampPhoto])}</div>` : ''}
   </div>`;
+}
+
+// ---- fatura / dekont (invoice attachment) ------------------------------------
+// Müşteri/Mecra Finans kartlarındaki basit fatura-dekont ekleme alanı — çek
+// satırının (chequeRowHtml) sadeleştirilmiş hâli: hareket geçmişi yok,
+// satıra tıklanınca aynı form hem görüntüleme hem düzenleme için açılır,
+// satırdaki ✕ ile doğrudan silinebilir (openInvoiceForm/deleteInvoiceUI —
+// screens-forms.js).
+export function invoiceRowHtml(inv, { onClick, onDelete } = {}) {
+  const dirLabel = inv.direction === 'alinan' ? 'Aldığımız' : 'Kestiğimiz';
+  const dirChip = inv.direction === 'alinan' ? 'amber' : 'cyan';
+  return `
+  <div class="row-card" onclick="${onClick(inv)}">
+    <div class="avatar" style="background:var(--bg-soft);color:var(--primary-dark)">${icon('receipt', { size: 16 })}</div>
+    <div class="info">
+      <div class="name">${escapeHtml(inv.no || 'Fatura/Dekont')} <span class="chip ${dirChip}">${dirLabel}</span></div>
+      <div class="sub">
+        ${inv.date ? `<span>${formatDate(inv.date)}</span>` : ''}
+        ${inv.amount ? `<span>· ${fmt(inv.amount)}</span>` : ''}
+        ${inv.photos && inv.photos.length ? `<span>· ${inv.photos.length} foto</span>` : ''}
+      </div>
+    </div>
+    ${onDelete ? `<button class="pay-del" onclick="event.stopPropagation();${onDelete(inv)}">${icon('x', { size: 13 })}</button>` : ''}
+  </div>`;
+}
+
+// ---- randevu / toplantı satırı ------------------------------------------------
+// Randevu Ajandası'nın ana ve geçmiş listelerinde ortak satır — çek/ödeme
+// satırlarıyla aynı row-card deseni. Tıklanınca detay sayfasına gider
+// (düzenleme oradaki ayrı kalem düğmesinden); satırdaki ✕ ile de doğrudan
+// silinebilir.
+export function appointmentRowHtml(a, { onClick, onDelete } = {}) {
+  return `
+  <div class="row-card" onclick="${onClick(a)}">
+    ${avatarHtml(a.person || a.subject || '?')}
+    <div class="info">
+      <div class="name">${escapeHtml(a.subject || a.person || 'Randevu')}</div>
+      <div class="sub">
+        <span>${formatDate(a.date)}${a.time ? ' · ' + escapeHtml(a.time) : ''}</span>
+        ${a.person && a.subject ? `<span>· ${escapeHtml(a.person)}</span>` : ''}
+      </div>
+    </div>
+    ${onDelete ? `<button class="pay-del" onclick="event.stopPropagation();${onDelete(a)}">${icon('x', { size: 13 })}</button>` : ''}
+  </div>`;
+}
+
+// Fatura/dekont bölümünün tamamı (başlık + "+ Ekle" + liste) — müşteri ve
+// mecra finans sayfalarında birebir aynı şekilde kullanılır, sadece
+// entityType ('client'|'vendor') / entityId farklı.
+export function invoiceSectionHtml(list, entityType, entityId) {
+  let html = `<div class="section-title">Fatura / Dekont <span class="link" onclick="H.openInvoiceForm('${entityType}','${jsAttr(entityId)}')">+ Ekle</span></div>`;
+  if (!list.length) {
+    html += emptyState(icon('receipt', { size: 32 }), 'Henüz fatura/dekont eklenmedi', 'Kestiğin veya aldığın fatura ya da dekontu buradan ekle.');
+  } else {
+    const sorted = [...list].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    html += sorted.map((inv) => invoiceRowHtml(inv, {
+      onClick: (i) => `H.openInvoiceForm('${entityType}','${jsAttr(entityId)}','${i.id}')`,
+      onDelete: (i) => `H.deleteInvoiceUI('${i.id}')`
+    })).join('');
+  }
+  return html;
 }

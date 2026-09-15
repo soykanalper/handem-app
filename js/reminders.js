@@ -21,6 +21,9 @@ import { CHEQUE_MANUAL_STATUSES } from './calc.js';
 import { getAllClientsAggregate } from './aggregate.js';
 
 export const LEAD_DAYS = 7;
+// §ajanda-takip: randevular çek/kampanya gibi 7 gün önceden değil, kullanıcının
+// istediği gibi sadece 1 gün önceden Takip'te görünsün.
+export const APPOINTMENT_LEAD_DAYS = 1;
 const DISMISS_KEY = 'remind-dismissed';
 
 function addDays(iso, n) {
@@ -37,8 +40,9 @@ export async function getDismissedKeys() {
 // Pure reshape — no fetching — so callers that already have `clients` (Ana
 // Sayfa already fetches it via getBusinessOverview()) don't pay for a second
 // fetch just to show the bell badge count.
-export function buildReminders(cheques, clients, today = todayISO()) {
+export function buildReminders(cheques, clients, appointments = [], today = todayISO()) {
   const horizon = addDays(today, LEAD_DAYS);
+  const apptHorizon = addDays(today, APPOINTMENT_LEAD_DAYS);
   const rows = [];
 
   cheques.forEach((c) => {
@@ -75,17 +79,34 @@ export function buildReminders(cheques, clients, today = todayISO()) {
     });
   });
 
+  // §ajanda-takip: randevular sadece 1 gün öncesinden itibaren (bugün dahil)
+  // Takip'te görünür — tarihi geçmiş randevu burada tekrar görünmesin.
+  appointments.forEach((a) => {
+    if (!a.date || a.deleted) return;
+    if (a.date < today || a.date > apptHorizon) return;
+    rows.push({
+      dismissKey: `appointment:${a.id}:${a.date}`,
+      type: 'appointment',
+      title: a.subject || a.person || 'Randevu',
+      subtitle: (a.person && a.subject ? a.person + ' · ' : '') + 'Randevu' + (a.time ? ' · ' + a.time : ''),
+      amount: null,
+      date: a.date,
+      overdue: false,
+      link: `/randevu/${a.id}`
+    });
+  });
+
   // En yakın tarih en üstte — vadesi geçmiş/bugün olanlar doğal olarak başa gelir.
   rows.sort((a, b) => a.date.localeCompare(b.date));
   return rows;
 }
 
 // Self-fetching convenience for the Takip page (does its own cheques +
-// clients fetch, then filters out anything already dismissed).
+// clients + randevu fetch, then filters out anything already dismissed).
 export async function getReminders() {
   const today = todayISO();
-  const [cheques, clients] = await Promise.all([repo.getAllCheques(), getAllClientsAggregate()]);
-  const all = buildReminders(cheques, clients, today);
+  const [cheques, clients, appts] = await Promise.all([repo.getAllCheques(), getAllClientsAggregate(), repo.getAllAppointments()]);
+  const all = buildReminders(cheques, clients, appts, today);
   const dismissed = await getDismissedKeys();
   return all.filter((r) => !dismissed.has(r.dismissKey));
 }

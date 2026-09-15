@@ -9,6 +9,7 @@ import * as util from './util.js';
 import * as screens from './screens.js';
 import * as finance from './screens-finance.js';
 import * as forms from './screens-forms.js';
+import * as appointments from './screens-appointments.js';
 import * as mutabakat from './mutabakat.js';
 import * as cloudBootstrap from './cloud/bootstrap.js';
 import { initSync } from './sync.js';
@@ -21,6 +22,7 @@ window.H = Object.assign(
   screens,
   finance,
   forms,
+  appointments,
   mutabakat,
   {
     goto: (hash) => ui.navigate(hash),
@@ -48,6 +50,9 @@ function compileRoute(pattern) {
 const ROUTES = [
   ['/', screens.renderHome],
   ['/reminders', screens.renderReminders],
+  ['/randevu', appointments.renderAppointments],
+  ['/randevu/gecmis', appointments.renderPastAppointments],
+  ['/randevu/:appointmentId', appointments.renderAppointmentDetail],
   ['/customers', screens.renderCustomers],
   ['/customers/:clientId', screens.renderClientDetail],
   ['/customers/:clientId/products/:productId', screens.renderProductDetail],
