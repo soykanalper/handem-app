@@ -1,4 +1,4 @@
-const CACHE_NAME = 'handem-v22';
+const CACHE_NAME = 'handem-v24';
 const APP_SHELL = [
   './',
   './index.html',
