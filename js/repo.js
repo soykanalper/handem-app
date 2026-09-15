@@ -10,6 +10,23 @@ export const PAYMENT_TYPES = ['Nakit', 'Havale / EFT', 'Çek', 'Vadeli', 'Diğer
 export const DEFAULT_MEDIA_TYPES = ['TV', 'Radio', 'Gazete', 'Açık Hava', 'Dijital', 'Sosyal Medya', 'YouTube', 'Instagram', 'Influencer', 'Sinema', 'Diğer'];
 export const DEFAULT_WORK_TYPES = ['Reklam', 'Program Sponsorluk', 'Spot', 'Banner', 'Sosyal Medya', 'İçerik', 'Giydirme', 'Billboard', 'Diğer'];
 
+// §yuklenici-secmeli: Mecra Türü "TV"/"Radio" seçildiğinde Yüklenici alanı bu
+// küratörlü listelerle dolu geliyor — kullanıcının kendi geçmişte girdiği
+// isimlerle birleştirilir (bkz. getVendorNamesForType). Liste eksik/yanlışsa
+// "elle yazacağım" seçeneği her zaman açık kalır, hiçbir veri kaybı olmaz.
+export const TV_CHANNELS = [
+  'TRT 1', 'ATV', 'Show TV', 'Star TV', 'Kanal D', 'Fox TV', 'TV8', 'TV8.5', 'NOW',
+  'Kanal 7', 'TRT Spor', 'TRT Haber', 'CNN Türk', 'NTV', 'Habertürk', 'A Haber',
+  'TGRT Haber', 'Ülke TV', 'Bloomberg HT', 'beIN Sports', 'S Sport', 'TV100',
+  'TRT Çocuk', 'TRT Belgesel', 'Beyaz TV', 'Halk TV', 'Sözcü TV', 'Tele1', 'Flash TV'
+];
+export const RADIO_CHANNELS = [
+  'TRT Radyo 1', 'TRT FM', 'Kral FM', 'Kral Pop', 'Power FM', 'Power Türk',
+  'Metro FM', 'Number1', 'Number1 Türk', 'Best FM', 'Süper FM', 'Radyo D',
+  'Show Radyo', 'Alem FM', 'Joy FM', 'Joy Türk', 'Slow Türk', 'Radyo 7',
+  'Virgin Radio Türkiye', 'Açık Radyo', 'Radyo Viva', 'Radyo Eksen'
+];
+
 // -------- clients ------------------------------------------------------------
 export const getClients = () => dbGetAll('clients');
 export const getClient = (id) => dbGet('clients', id);
@@ -81,6 +98,20 @@ export async function getAllVendorNames() {
   const fromMedia = media.map((m) => m.vendor).filter(Boolean);
   const fromCustom = custom.map((v) => v.name);
   return [...new Set([...fromCustom, ...fromMedia])].sort((a, b) => a.localeCompare(b, 'tr'));
+}
+
+// §yuklenici-secmeli: bir mecra türüne göre Yüklenici seçenekleri — TV/Radio
+// için küratörlü kanal listesiyle birleşik, diğer türlerde SADECE o türde
+// daha önce kullanıcının kendi elle girdiği yükleniciler (global "tüm
+// yükleniciler" listesiyle karışmasın — Açık Hava seçiliyken TV kanalları
+// çıkmasın diye).
+export async function getVendorNamesForType(mediaType) {
+  const media = await getAllMedia();
+  const used = [...new Set(media.filter((m) => m.mediaType === mediaType).map((m) => m.vendor).filter(Boolean))];
+  let curated = [];
+  if (mediaType === 'TV') curated = TV_CHANNELS;
+  else if (mediaType === 'Radio') curated = RADIO_CHANNELS;
+  return [...new Set([...curated, ...used])].sort((a, b) => a.localeCompare(b, 'tr'));
 }
 
 export async function getAllMediaTypeNames() {

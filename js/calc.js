@@ -60,10 +60,20 @@ export function mediaPayableInclusive(media) {
   return vatInclusive(mediaNetPayable(media), media.vatRate);
 }
 
+// §musteri-kdv: satış (müşteriye) tarafının KDV oranı artık mecra/alış
+// tarafından bağımsız olabiliyor — mecradan %20 ile alıp müşteriye %14 ile
+// satmak gibi durumlar için. media.salesVatRate hiç yoksa (eski kayıtlar,
+// bu alan daha önce hiç yoktu) media.vatRate'e düşülüyor ki dokunulmamış
+// eski kayıtların hesabı bire bir aynı kalsın — undefined ile null/''
+// (kullanıcının bilerek "KDV Yok" seçmesi) birbirinden ayrı tutuluyor.
+export function resolvedSalesVatRate(media) {
+  return media.salesVatRate !== undefined ? media.salesVatRate : media.vatRate;
+}
+
 // §kdv-fix: the real money receivable from the customer for one media line,
 // KDV included when a rate is set — what actually has to be collected.
 export function mediaReceivableInclusive(media) {
-  return vatInclusive(Number(media.sales) || 0, media.vatRate);
+  return vatInclusive(Number(media.sales) || 0, resolvedSalesVatRate(media));
 }
 
 export function mediaProfit(media) {
@@ -159,8 +169,25 @@ export function remainingAndExcess(payableOrReceivable, paidOrCollected) {
 }
 
 // ---- customer totals across many campaigns ---------------------------------
+// §fazla-tahsilat-netlestirme: müşteri tarafının kalan/fazla'sı artık HER
+// KAMPANYA için ayrı ayrı sıfırın altına yuvarlanıp öyle toplanmıyor — önce
+// bu müşterinin (bu fonksiyona verilen kampanya listesinin — bkz.
+// getClientAggregate, her zaman TEK bir müşterinin kendi kampanyaları)
+// alacağı/tahsilatı ham haliyle toplanıyor, yuvarlama (remainingAndExcess)
+// SADECE EN SONDA bir kere uygulanıyor. Böylece bir kampanyada fazla
+// tahsil edilen tutar, aynı müşterinin başka bir kampanyasındaki kalan
+// borcu otomatik karşılıyor — ama bu fonksiyon her zaman tek bir müşterinin
+// kendi kampanya listesiyle çağrıldığı için başka bir müşteriyle asla
+// karışmıyor (bkz. getClientAggregate/getBusinessOverview).
+// Not: mecra/yüklenici tarafı (totalNetPayable/mediaPaid/mediaRemaining/
+// mediaExcess) BİLEREK aynı şekilde değiştirilmedi — bir kampanya birden
+// fazla FARKLI yükleniciyi birden içerebiliyor, o yüzden bu alanların
+// kampanyalar arası ham toplanıp tek seferde yuvarlanması farklı
+// yüklenicilerin parasını birbirine karıştırır. Yüklenici bazlı doğru
+// (ve zaten doğru yazılmış) netleştirme aggregate.js'teki
+// getVendorAggregate'de, vendor adı bazında yapılıyor.
 export function sumCampaignSummaries(summaries) {
-  return summaries.reduce((acc, s) => ({
+  const totals = summaries.reduce((acc, s) => ({
     totalSales: acc.totalSales + s.totalSales,
     totalPurchase: acc.totalPurchase + s.totalPurchase,
     totalRistorno: acc.totalRistorno + s.totalRistorno,
@@ -168,17 +195,17 @@ export function sumCampaignSummaries(summaries) {
     campaignProfit: acc.campaignProfit + s.campaignProfit,
     customerReceivable: acc.customerReceivable + s.customerReceivable,
     customerCollected: acc.customerCollected + s.customerCollected,
-    customerRemaining: acc.customerRemaining + s.customerRemaining,
-    customerExcess: acc.customerExcess + s.customerExcess,
     totalNetPayable: acc.totalNetPayable + s.totalNetPayable,
     mediaPaid: acc.mediaPaid + s.mediaPaid,
     mediaRemaining: acc.mediaRemaining + s.mediaRemaining,
     mediaExcess: acc.mediaExcess + s.mediaExcess
   }), {
     totalSales: 0, totalPurchase: 0, totalRistorno: 0, agencyFee: 0, campaignProfit: 0,
-    customerReceivable: 0, customerCollected: 0, customerRemaining: 0, customerExcess: 0,
+    customerReceivable: 0, customerCollected: 0,
     totalNetPayable: 0, mediaPaid: 0, mediaRemaining: 0, mediaExcess: 0
   });
+  const { remaining: customerRemaining, excess: customerExcess } = remainingAndExcess(totals.customerReceivable, totals.customerCollected);
+  return { ...totals, customerRemaining, customerExcess };
 }
 
 // ---- campaign status --------------------------------------------------------

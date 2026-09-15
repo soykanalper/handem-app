@@ -652,14 +652,21 @@ export async function renderMediaDetail({ mediaId }) {
       <div class="detail-row"><span class="k">Yüklenici</span><span class="v" style="cursor:pointer;text-decoration:underline;" onclick="H.goto('/finance/vendor/${encodeURIComponent(media.vendor)}')">${escapeHtml(media.vendor)}</span></div>
       <div class="detail-row"><span class="k">İş Türü</span><span class="v">${escapeHtml(media.workType)}</span></div>
       <div class="detail-row"><span class="k">Tarih Aralığı</span><span class="v">${formatDate(media.startDate)} — ${formatDate(media.endDate)}</span></div>
-      ${media.vatRate ? `<div class="detail-row"><span class="k">KDV</span><span class="v">${vatBadge(media.vatRate)}</span></div>` : ''}
+      ${(() => {
+        const salesRate = calc.resolvedSalesVatRate(media);
+        const sameRate = String(media.vatRate ?? '') === String(salesRate ?? '');
+        if (!media.vatRate && !salesRate) return '';
+        if (sameRate) return `<div class="detail-row"><span class="k">KDV</span><span class="v">${vatBadge(media.vatRate)}</span></div>`;
+        // §musteri-kdv: alış ve satış KDV oranı farklıysa ikisi ayrı ayrı gösterilir.
+        return `<div class="detail-row"><span class="k">KDV (Alış / Satış)</span><span class="v">${vatBadge(media.vatRate) || '<span class="hint">Yok</span>'} / ${vatBadge(salesRate) || '<span class="hint">Yok</span>'}</span></div>`;
+      })()}
       ${media.note ? `<div class="note-box"><b>Not</b>${escapeHtml(media.note)}</div>` : ''}
     </div>
 
     <div class="detail-card">
       <h3>Finansal Detay</h3>
       ${isAdmin() ? vatDetailRow('Alış', media.purchase, media.vatRate) : ''}
-      ${isAdmin() ? vatDetailRow('Satış', media.sales, media.vatRate) : ''}
+      ${isAdmin() ? vatDetailRow('Satış', media.sales, calc.resolvedSalesVatRate(media)) : ''}
       ${isAdmin() ? `<div class="detail-row amber"><span class="k">Ristorno % / Tutar</span><span class="v">%${fmtN(media.ristornoPercent)} · ${fmt(ristorno)}</span></div>` : ''}
       ${vatDetailRow('Net Ödenecek', net, media.vatRate)}
       ${isAdmin() ? `<div class="detail-row total green"><span class="k">Kâr (KDV Hariç)</span><span class="v">${fmt(profit)}</span></div>` : ''}
@@ -669,8 +676,9 @@ export async function renderMediaDetail({ mediaId }) {
     ${media.budgetEnabled && isAdmin() && Array.isArray(media.budgetItems) && media.budgetItems.length ? `
     <div class="detail-card">
       <h3>Kalem Kalem Takip</h3>
-      ${media.budgetItems.map((it) => `<div class="detail-row"><span class="k">${escapeHtml(it.label)}</span><span class="v">${fmt(it.amount)}</span></div>`).join('')}
-      <div class="detail-row total"><span class="k">Toplam</span><span class="v">${fmt(media.budgetItems.reduce((s, it) => s + (Number(it.amount) || 0), 0))}</span></div>
+      <div class="detail-row"><span class="k"></span><span class="v" style="display:flex;gap:14px;"><span class="hint" style="min-width:56px;text-align:right;">Alış</span><span class="hint" style="min-width:56px;text-align:right;">Satış</span></span></div>
+      ${media.budgetItems.map((it) => `<div class="detail-row"><span class="k">${escapeHtml(it.label)}</span><span class="v" style="display:flex;gap:14px;"><span style="min-width:56px;text-align:right;">${fmt(it.amount)}</span><span style="min-width:56px;text-align:right;">${fmt(Number(it.salesAmount) || 0)}</span></span></div>`).join('')}
+      <div class="detail-row total"><span class="k">Toplam</span><span class="v" style="display:flex;gap:14px;"><span style="min-width:56px;text-align:right;">${fmt(media.budgetItems.reduce((s, it) => s + (Number(it.amount) || 0), 0))}</span><span style="min-width:56px;text-align:right;">${fmt(media.budgetItems.reduce((s, it) => s + (Number(it.salesAmount) || 0), 0))}</span></span></div>
     </div>` : ''}
 
     <div class="detail-card">

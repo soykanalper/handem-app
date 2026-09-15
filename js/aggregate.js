@@ -214,21 +214,31 @@ export async function getAllVendorsAggregate() {
 
 export async function getFinanceCustomerTotals() {
   const clients = await getAllClientsAggregate();
+  // §fazla-tahsilat-netlestirme: her müşterinin totalSummary'si zaten kendi
+  // kampanyaları arasında netleşmiş durumda (bkz. calc.sumCampaignSummaries)
+  // — burada sadece müşterilerin kendi aralarında toplanıyor, birbirine
+  // karışmıyor.
   const totals = clients.reduce((acc, c) => ({
     receivable: acc.receivable + c.totalSummary.customerReceivable,
     collected: acc.collected + c.totalSummary.customerCollected,
-    remaining: acc.remaining + c.totalSummary.customerRemaining
-  }), { receivable: 0, collected: 0, remaining: 0 });
+    remaining: acc.remaining + c.totalSummary.customerRemaining,
+    excess: acc.excess + c.totalSummary.customerExcess
+  }), { receivable: 0, collected: 0, remaining: 0, excess: 0 });
   return { clients, totals };
 }
 
 export async function getFinanceVendorTotals() {
   const vendors = await getAllVendorsAggregate();
+  // §fazla-tahsilat-netlestirme: her yüklenicinin totalExcess'i zaten kendi
+  // (tüm müşteriler/kampanyalar genelindeki) net hesabından geliyor —
+  // burada sadece bu zaten-doğru rakamları yüklenicilerin kendi aralarında
+  // topluyoruz, birbirine karıştırmıyoruz.
   const totals = vendors.reduce((acc, v) => ({
     debt: acc.debt + v.totalNetPayable,
     paid: acc.paid + v.totalPaid,
-    remaining: acc.remaining + v.totalRemaining
-  }), { debt: 0, paid: 0, remaining: 0 });
+    remaining: acc.remaining + v.totalRemaining,
+    excess: acc.excess + v.totalExcess
+  }), { debt: 0, paid: 0, remaining: 0, excess: 0 });
   return { vendors, totals };
 }
 

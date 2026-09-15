@@ -11,6 +11,11 @@ import { avatarHtml, payRowHtml, chequeRowHtml, chequeStatusChip, chequeUsedFrag
 import { icon } from './icons.js';
 import { isAdmin } from './cloud/team.js';
 
+// §mecra-musteri-klon: Mecralar (bottom nav) ana sayfası artık Müşteriler
+// sayfasının birebir klonu — kendi arama alanı state'i burada tutuluyor
+// (screens.js'teki customerSearch ile aynı desen).
+let vendorSearch = '';
+
 // §finans-mecra: "Mecra" is back as a third tab here — this time NOT the
 // same screen as the standalone "Mecralar" bottom-nav tab. Mecralar (bottom
 // nav) is for MANAGING media buys (mecra türü/yüklenici ekleme, TV yıllık
@@ -55,11 +60,16 @@ export async function renderFinanceCustomerList() {
       <div class="si red"><div class="label">Kalan</div><div class="value">${fmtN(totals.remaining)}</div></div>
     </div>
   `;
+  if (totals.excess > 0) {
+    html += `<div class="note-box"><b>Fazla Tahsilat</b>${fmt(totals.excess)} — müşterilerden alacaklarından fazla tahsil edilmiş.</div>`;
+  }
 
   if (clients.length === 0) {
     html += emptyState(icon('creditCard', { size: 32 }), 'Henüz finansal kayıt yok', 'Müşteri ekleyip kampanya oluşturduğunda burada görünecek.');
   } else {
-    html += clients.map((c) => `
+    html += clients.map((c) => {
+      const hasExcess = c.totalSummary.customerRemaining === 0 && c.totalSummary.customerExcess > 0;
+      return `
       <div class="row-card" onclick="H.goto('/customers/${c.client.id}')">
         ${avatarHtml(c.client.name)}
         <div class="info">
@@ -67,11 +77,12 @@ export async function renderFinanceCustomerList() {
           <div class="sub">Alacak (KDV Dahil) ${fmtN(c.totalSummary.customerReceivable)} · Tahsil ${fmtN(c.totalSummary.customerCollected)}</div>
         </div>
         <div class="right-col">
-          <div class="big">${fmt(c.totalSummary.customerRemaining)}</div>
-          <div class="small">kalan</div>
+          <div class="big" style="${hasExcess ? 'color:var(--amber-dark);' : ''}">${fmt(hasExcess ? c.totalSummary.customerExcess : c.totalSummary.customerRemaining)}</div>
+          <div class="small">${hasExcess ? 'fazla tahsilat' : 'kalan'}</div>
         </div>
       </div>
-    `).join('');
+    `;
+    }).join('');
   }
 
   setContent(html);
@@ -182,22 +193,90 @@ async function vendorHierarchyBody() {
   return html;
 }
 
-// §58/62: the standalone top-level "Mecralar" area — the media/vendor
-// hierarchy, and (§nav-redesign) the sole path to it now that the duplicate
-// Finans → Mecra tab is gone.
+// §58/62/§mecra-musteri-klon: the standalone top-level "Mecralar" area — artık
+// Müşteriler sayfasının (screens.js renderCustomers) birebir klonu: aynı
+// arama kutusu + aynı row-card listesi düzeni. TEK FARK: en üstte, kullanıcının
+// bugüne kadar girdiği mecra türleri otomatik olarak buton (pill) satırı
+// halinde beliriyor — birine basınca o türün yüklenicileri AYNI stil row-card
+// listesiyle (renderMediaTypeDetail, zaten var olan /finance/vendor/t/:type
+// sayfası) sıralanıyor, oradan da bir yükleniciye basınca yüklenicinin kendi
+// mevcut sayfasına (renderFinanceVendorDetail) gidiliyor — üçü de tek bir
+// tıklama zincirinde. "Ödeme Listesi" bölümü bu sayfadan tamamen kaldırıldı
+// (eski vendorHierarchyBody artık burada kullanılmıyor).
 export async function renderMecraHome() {
   setActiveNav('mecra');
   setFabVisible(true);
   setFabAction(() => window.H.openVendorQuickAddForm());
-  // §nav-redesign temizliği: buradaki topbar "+" düğmesi, sayfadaki alt
-  // menü "+" (FAB) ile birebir aynı fonksiyona (openVendorQuickAddForm)
-  // gidiyordu — iki ayrı düğme aynı işi yapıyordu. FAB zaten her zaman
-  // görünür olduğu için topbar'daki tekrar eden düğme kaldırıldı.
   setTopbar(`
-    <div class="left"><h1>Mecralar</h1></div>
-  `);
+    <div class="brand-row">
+      <img src="icons/logo.png" alt="Hande'M" class="brand-logo-img">
+    </div>
+  `, 'brand-centered');
   setContent(`<div class="list-loading">Yükleniyor…</div>`);
-  setContent(await vendorHierarchyBody());
+
+  const [{ vendors }, typeOverview] = await Promise.all([
+    agg.getFinanceVendorTotals(),
+    agg.getMediaTypeOverview()
+  ]);
+
+  let html = `<div class="search-box"><input id="vendorSearchInput" placeholder="Yüklenici ara…" value="${escapeHtml(vendorSearch)}"></div>`;
+
+  if (typeOverview.length > 0) {
+    html += `<div class="pills" style="padding:2px 2px 12px;flex-wrap:wrap;">` +
+      typeOverview.map((t) => `<button class="pill" onclick="H.goto('/finance/vendor/t/${encodeURIComponent(t.mediaType)}')">${escapeHtml(t.mediaType)}</button>`).join('') +
+      `</div>`;
+  }
+
+  const filtered = vendors.filter((v) => v.vendor.toLowerCase().includes(vendorSearch.toLowerCase()));
+  filtered.sort((a, b) => b.totalRemaining - a.totalRemaining);
+
+  if (vendors.length === 0) {
+    html += emptyState(icon('monitor', { size: 32 }), 'Henüz mecra/yüklenici yok', 'Aşağıdaki + ile başla.');
+  } else if (filtered.length === 0) {
+    html += emptyState(icon('search', { size: 32 }), 'Sonuç bulunamadı', 'Farklı bir arama dene.');
+  } else {
+    html += filtered.map((v) => {
+      const hasExcess = v.totalRemaining === 0 && v.totalExcess > 0;
+      return `
+      <div class="row-card" onclick="H.goto('/finance/vendor/${encodeURIComponent(v.vendor)}')">
+        ${avatarHtml(v.vendor)}
+        <div class="info">
+          <div class="name">${escapeHtml(v.vendor)}</div>
+          <div class="sub">Borç (KDV Dahil) ${fmtN(v.totalNetPayable)} · Ödenen ${fmtN(v.totalPaid)}</div>
+        </div>
+        <div class="right-col">
+          <div class="big" style="${hasExcess ? 'color:var(--amber-dark);' : ''}">${fmt(hasExcess ? v.totalExcess : v.totalRemaining)}</div>
+          <div class="small">${hasExcess ? 'fazla ödeme' : 'kalan'}</div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  // TV Yıllık Ristorno bir Mecra aracı olarak burada erişilebilir kalmaya
+  // devam ediyor (eski vendorHierarchyBody'de de vardı) — §roles: personelden
+  // gizli, sadece admin.
+  if (isAdmin()) {
+    html += `
+      <div class="row-card" onclick="H.goto('/mecra/tv')">
+        <div class="avatar" style="background:#F59E0B">${icon('calendar', { size: 18 })}</div>
+        <div class="info"><div class="name">TV Yıllık Ristorno</div><div class="sub">Yıllık TV ristorno hesaplama ve mutabakat</div></div>
+        <div class="chev">${icon('chevronRight', { size: 16 })}</div>
+      </div>
+    `;
+  }
+
+  setContent(html);
+  const searchInput = document.getElementById('vendorSearchInput');
+  if (searchInput) {
+    searchInput.addEventListener('input', (e) => {
+      vendorSearch = e.target.value;
+      renderMecraHome();
+      setTimeout(() => {
+        const el = document.getElementById('vendorSearchInput');
+        if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+      }, 0);
+    });
+  }
 }
 
 // §finans-mecra: Finans → Mecra — flat yüklenici listesi, kalan'a göre
@@ -222,11 +301,16 @@ export async function renderFinanceVendorList() {
       <div class="si red"><div class="label">Kalan</div><div class="value">${fmtN(totals.remaining)}</div></div>
     </div>
   `;
+  if (totals.excess > 0) {
+    html += `<div class="note-box"><b>Fazla Ödeme</b>${fmt(totals.excess)} — yüklenicilere borçlarından fazla ödeme yapılmış.</div>`;
+  }
 
   if (vendors.length === 0) {
     html += emptyState(icon('landmark', { size: 32 }), 'Henüz finansal kayıt yok', 'Bir kampanyaya mecra/yüklenici eklediğinde burada görünecek.');
   } else {
-    html += vendors.map((v) => `
+    html += vendors.map((v) => {
+      const hasExcess = v.totalRemaining === 0 && v.totalExcess > 0;
+      return `
       <div class="row-card" onclick="H.goto('/finance/vendor/${encodeURIComponent(v.vendor)}')">
         ${avatarHtml(v.vendor)}
         <div class="info">
@@ -234,11 +318,12 @@ export async function renderFinanceVendorList() {
           <div class="sub">Borç (KDV Dahil) ${fmtN(v.totalNetPayable)} · Ödenen ${fmtN(v.totalPaid)}${isAdmin() ? ` · Kâr (KDV Hariç) ${fmtN(v.totalProfit)}` : ''}</div>
         </div>
         <div class="right-col">
-          <div class="big">${fmt(v.totalRemaining)}</div>
-          <div class="small">kalan</div>
+          <div class="big" style="${hasExcess ? 'color:var(--amber-dark);' : ''}">${fmt(hasExcess ? v.totalExcess : v.totalRemaining)}</div>
+          <div class="small">${hasExcess ? 'fazla ödeme' : 'kalan'}</div>
         </div>
       </div>
-    `).join('');
+    `;
+    }).join('');
   }
 
   setContent(html);
