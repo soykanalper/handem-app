@@ -71,14 +71,16 @@ export function mediaRowHtml(media, group = {}) {
   return `
   <div class="media-row" onclick="H.goto('/media/${media.id}')">
     <div class="mr-top">
-      <div>
-        <div class="mr-vendor"><span onclick="event.stopPropagation();H.goto('/finance/vendor/${encodeURIComponent(media.vendor)}')" style="cursor:pointer;">${escapeHtml(media.vendor)}</span></div>
-        <div class="mr-work"><span onclick="event.stopPropagation();H.goto('/finance/vendor/t/${encodeURIComponent(media.mediaType)}')" style="cursor:pointer;">${escapeHtml(media.mediaType)}</span> · ${escapeHtml(media.workType)}</div>
+      <div style="display:flex;gap:8px;align-items:flex-start;">
+        ${avatarHtml(media.vendor)}
+        <div>
+          <div class="mr-vendor"><span onclick="event.stopPropagation();H.goto('/finance/vendor/${encodeURIComponent(media.vendor)}')" style="cursor:pointer;">${escapeHtml(media.vendor)}</span></div>
+          <div class="mr-work"><span onclick="event.stopPropagation();H.goto('/finance/vendor/t/${encodeURIComponent(media.mediaType)}')" style="cursor:pointer;">${escapeHtml(media.mediaType)}</span> · ${escapeHtml(media.workType)}</div>
+        </div>
       </div>
       <div style="display:flex;gap:4px;align-items:center;">
         ${calc.isTV(media.mediaType) ? '<span class="chip amber">TV</span>' : ''}
         ${vatBadge(media.vatRate)}
-        <button class="icon-btn" style="width:26px;height:26px;" onclick="event.stopPropagation();H.openMediaForm('${media.campaignId}','${media.id}')">${icon('pencil', { size: 13 })}</button>
       </div>
     </div>
     <div class="mr-grid"${isAdmin() ? '' : ' style="grid-template-columns:1fr;"'}>
@@ -96,6 +98,7 @@ export function mediaRowHtml(media, group = {}) {
     <div class="mr-grid" style="margin-top:4px;grid-template-columns:1fr;">
       <div class="fi green" style="text-align:left;"><span class="label">Kâr</span><span class="value" style="font-size:12.5px;">${fmtN(profit)}</span></div>
     </div>` : ''}
+    <button class="btn small outline" style="width:100%;margin-top:8px;" onclick="event.stopPropagation();H.openMediaForm('${media.campaignId}','${media.id}')">${icon('pencil', { size: 13, className: 'icon-inline' })} Alış / Satış / Ristorno / Tarih Düzenle</button>
   </div>`;
 }
 
@@ -189,8 +192,14 @@ export function reminderRowHtml(r, { onDismiss } = {}) {
 // prominent, primary figure — VAT is always secondary/informational (§55.3).
 export function vatDetailRow(label, netAmount, vatRate, rowClass = '') {
   const rate = vatRate === '' || vatRate == null ? null : Number(vatRate);
+  // §kdv-tutari: kullanıcı, ödenecek/tahsil edilecek KDV'nin kendisini
+  // (sadece vergi payını) ayrı ve açık bir kalem olarak görmek istedi — daha
+  // önce sadece "KDV Dahil toplam" gösteriliyordu, verginin kendisi hiçbir
+  // yerde ayrıca yazmıyordu. calc.vatAmount() zaten doğru hesaplıyordu, burada
+  // sadece görünür kılındı; mevcut "KDV Dahil" satırı KALDIRILMADI, yanına
+  // eklendi.
   const sub = rate
-    ? `<div class="vat-sub vat-on">%${rate} KDV → <b>${fmt(calc.vatInclusive(netAmount, rate))}</b> KDV Dahil</div>`
+    ? `<div class="vat-sub vat-on">%${rate} KDV Tutarı: <b>${fmt(calc.vatAmount(netAmount, rate))}</b> · KDV Dahil Toplam: <b>${fmt(calc.vatInclusive(netAmount, rate))}</b></div>`
     : `<div class="vat-sub vat-off">KDV Hariç</div>`;
   return `
   <div class="detail-row stacked ${rowClass}">
@@ -234,4 +243,25 @@ export function photoGalleryHtml(photos) {
   const list = photos || [];
   if (!list.length) return '';
   return `<div class="photo-strip">${list.map((src) => `<div class="photo-thumb"><img src="${src}" onclick="H.viewPhotoDataUrl('${jsAttr(src)}')"></div>`).join('')}</div>`;
+}
+
+// ---- künye (şirket profili) kartı --------------------------------------------
+// Müşteri ve Mecra/Yüklenici detay sayfalarında ortak kullanılan salt-okunur
+// künye kartı — Fatura Adresi, Adres, VKN, IBAN (VKN/IBAN yanında panoya
+// kopyalama düğmesiyle) ve varsa kaşe fotoğrafı. `entity` hiçbir künye alanı
+// doldurulmamışsa (yeni/eski kayıt) kart hiç basılmaz — mevcut sayfa
+// düzenine hiçbir boş alan eklenmez.
+export function kunyeCardHtml(entity) {
+  if (!entity) return '';
+  const { billingAddress, address, vkn, iban, stampPhoto } = entity;
+  if (!billingAddress && !address && !vkn && !iban && !stampPhoto) return '';
+  return `
+  <div class="detail-card">
+    <h3>${icon('receipt', { size: 15, className: 'icon-inline' })} Künye</h3>
+    ${billingAddress ? `<div class="detail-row stacked"><span class="k">Fatura Adresi</span><span class="v" style="white-space:pre-wrap;">${escapeHtml(billingAddress)}</span></div>` : ''}
+    ${address ? `<div class="detail-row stacked"><span class="k">Adres</span><span class="v" style="white-space:pre-wrap;">${escapeHtml(address)}</span></div>` : ''}
+    ${vkn ? `<div class="detail-row"><span class="k">VKN</span><span class="v" style="display:flex;align-items:center;gap:6px;">${escapeHtml(vkn)}<button type="button" class="copy-btn" onclick="event.stopPropagation();H.copyToClipboard('${jsAttr(vkn)}')" title="Kopyala">${icon('copy', { size: 13 })}</button></span></div>` : ''}
+    ${iban ? `<div class="detail-row"><span class="k">IBAN</span><span class="v" style="display:flex;align-items:center;gap:6px;">${escapeHtml(iban)}<button type="button" class="copy-btn" onclick="event.stopPropagation();H.copyToClipboard('${jsAttr(iban)}')" title="Kopyala">${icon('copy', { size: 13 })}</button></span></div>` : ''}
+    ${stampPhoto ? `<div class="field" style="margin-top:6px;"><label>Kaşe</label>${photoGalleryHtml([stampPhoto])}</div>` : ''}
+  </div>`;
 }

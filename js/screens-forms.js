@@ -21,6 +21,70 @@ function datalist(id, options) {
 }
 
 // ============================================================================
+// KÜNYE (şirket profili) — Müşteri VE Mecra/Yüklenici formlarında ortak.
+// Fatura Adresi, Adres, VKN, IBAN + tek bir kaşe fotoğrafı. `stampPhoto`
+// module-level transient — tıpkı formPhotos gibi, form açıldığında doldurulur
+// / sıfırlanır, sadece kaydederken kalıcı hale gelir.
+// ============================================================================
+let stampPhoto = null;
+
+function kunyeFieldsHtml(entity) {
+  stampPhoto = entity && entity.stampPhoto ? entity.stampPhoto : null;
+  return `
+    <div class="fee-box" style="margin-top:4px;">
+      <div class="field"><label>Fatura Adresi</label><textarea id="fKunyeBillingAddress" placeholder="Fatura adresi">${escapeHtml(entity && entity.billingAddress ? entity.billingAddress : '')}</textarea></div>
+      <div class="field"><label>Adres</label><textarea id="fKunyeAddress" placeholder="Açık adres">${escapeHtml(entity && entity.address ? entity.address : '')}</textarea></div>
+      <div class="row2">
+        <div class="field" style="margin-bottom:0;"><label>VKN</label><input id="fKunyeVkn" placeholder="Vergi Kimlik No" value="${entity && entity.vkn ? escapeHtml(entity.vkn) : ''}"></div>
+        <div class="field" style="margin-bottom:0;"><label>IBAN</label><input id="fKunyeIban" placeholder="TR…" value="${entity && entity.iban ? escapeHtml(entity.iban) : ''}"></div>
+      </div>
+      <div class="field" style="margin-top:10px;margin-bottom:0;">
+        <label>${icon('image', { size: 14, className: 'icon-inline' })} Kaşe Fotoğrafı</label>
+        <div class="photo-btns" id="kunyeStampBtns">
+          <button type="button" class="btn small outline" onclick="H.captureStampPhoto('camera')">${icon('camera', { size: 15, className: 'icon-inline' })} Kameradan Çek</button>
+          <button type="button" class="btn small outline" onclick="H.captureStampPhoto('gallery')">${icon('image', { size: 15, className: 'icon-inline' })} Galeriden Seç</button>
+        </div>
+        <div id="kunyeStampPreview"></div>
+      </div>
+    </div>`;
+}
+
+function renderStampPreview() {
+  const wrap = document.getElementById('kunyeStampPreview');
+  const btns = document.getElementById('kunyeStampBtns');
+  if (!wrap) return;
+  wrap.innerHTML = photoStripHtml(stampPhoto ? [stampPhoto] : [], {
+    onRemove: () => `H.removeStampPhoto()`,
+    onView: (src) => `H.viewPhotoDataUrl('${src}')`,
+    max: 1
+  });
+  if (btns) btns.style.display = stampPhoto ? 'none' : 'flex';
+}
+
+export async function captureStampPhoto(source) {
+  const dataUrl = await pickPhoto(source);
+  if (dataUrl) {
+    stampPhoto = dataUrl;
+    renderStampPreview();
+  }
+}
+
+export function removeStampPhoto() {
+  stampPhoto = null;
+  renderStampPreview();
+}
+
+function readKunyeFields() {
+  return {
+    billingAddress: document.getElementById('fKunyeBillingAddress').value.trim(),
+    address: document.getElementById('fKunyeAddress').value.trim(),
+    vkn: document.getElementById('fKunyeVkn').value.trim(),
+    iban: document.getElementById('fKunyeIban').value.trim(),
+    stampPhoto: stampPhoto || null
+  };
+}
+
+// ============================================================================
 // CUSTOMER (Müşteri)
 // ============================================================================
 export async function openCustomerForm(clientId) {
@@ -49,7 +113,10 @@ export async function openCustomerForm(clientId) {
       <p class="hint" style="margin-top:8px;">Yeni kampanya oluştururken bu değer otomatik önerilir, kampanya bazında değiştirilebilir.</p>
     </div>` : ''}
 
-    <button class="btn primary" onclick="H.guard(this, () => H.saveCustomer('${client ? client.id : ''}'))">Kaydet</button>
+    <div class="section-title" style="margin-top:4px;">Künye</div>
+    ${kunyeFieldsHtml(client)}
+
+    <button class="btn primary" onclick="H.guard(this, () => H.saveCustomer('${client ? client.id : ''}'))" style="margin-top:14px;">Kaydet</button>
   `;
   openSheet(html, (sheet) => {
     const feeTypeEl = sheet.querySelector('#fFeeType'); // absent for non-admin — see §roles above
@@ -61,6 +128,7 @@ export async function openCustomerForm(clientId) {
         label.textContent = e.target.value === 'fixed' ? 'Tutar (₺)' : 'Yüzde (%)';
       });
     }
+    renderStampPreview();
     sheet.querySelector('#fClientName').focus();
   });
 }
@@ -80,6 +148,7 @@ export async function saveCustomer(clientId) {
   } else {
     data = { name };
   }
+  Object.assign(data, readKunyeFields());
   try {
     if (clientId) {
       await repo.updateClient(clientId, data);
@@ -302,6 +371,7 @@ export async function openMediaForm(campaignId, mediaId) {
       <div class="pline" style="display:flex;justify-content:space-between;font-size:11.5px;"><span>Ristorno Tutarı</span><b id="pRistorno">0 ₺</b></div>
       <div class="pline" style="display:flex;justify-content:space-between;font-size:11.5px;"><span>Net Ödenecek</span><b id="pNet">0 ₺</b></div>
       ${isAdmin() ? `<div class="pline" style="display:flex;justify-content:space-between;font-size:11.5px;"><span>Kâr (KDV Hariç)</span><b id="pProfit">0 ₺</b></div>` : ''}
+      <div class="pline" id="pVatAmountLine" style="display:none;justify-content:space-between;font-size:11.5px;color:var(--amber-dark);"><span>KDV Tutarı</span><b id="pVatAmount">0 ₺</b></div>
       <div class="pline" id="pVatLine" style="display:none;justify-content:space-between;font-size:11.5px;color:var(--amber-dark);"><span>Satış KDV Dahil</span><b id="pVatIncl">0 ₺</b></div>
     </div>
 
@@ -322,11 +392,15 @@ export async function openMediaForm(campaignId, mediaId) {
       const profitEl = sheet.querySelector('#pProfit'); // absent for non-admin — see §roles above
       if (profitEl) profitEl.textContent = fmt(profit);
       const vatLine = sheet.querySelector('#pVatLine');
+      const vatAmountLine = sheet.querySelector('#pVatAmountLine');
       if (vatRate) {
         vatLine.style.display = 'flex';
+        vatAmountLine.style.display = 'flex';
         sheet.querySelector('#pVatIncl').textContent = fmt(calc.vatInclusive(sales, vatRate));
+        sheet.querySelector('#pVatAmount').textContent = fmt(calc.vatAmount(sales, vatRate));
       } else {
         vatLine.style.display = 'none';
+        vatAmountLine.style.display = 'none';
       }
     };
     ['fPurchase', 'fSales', 'fRistorno', 'fMediaType', 'fMediaVat'].forEach((id) => {
@@ -390,6 +464,38 @@ export async function deleteMedia(mediaId, campaignId) {
   await repo.deleteMedia(mediaId);
   toast('Mecra kaydı silindi', 'success');
   navigate('/campaigns/' + campaignId);
+}
+
+// ============================================================================
+// MECRA / YÜKLENİCİ KÜNYESİ (Vendor company profile) — §kunye
+// Müşteri kartındaki künyenin birebir aynısı, sadece `vendors` deposundaki
+// isim-bazlı kayda yazılıyor. Finans → Mecra Detayı'ndaki kalem simgesinden
+// açılır.
+// ============================================================================
+export async function openVendorProfileForm(vendorName) {
+  const profile = await repo.getVendorByName(vendorName);
+  const html = `
+    <button class="close-x" onclick="H.closeSheet()">✕</button>
+    <h2>${escapeHtml(vendorName)} — Künye</h2>
+    ${kunyeFieldsHtml(profile)}
+    <button class="btn primary" onclick="H.guard(this, () => H.saveVendorProfile('${jsAttr(vendorName)}'))" style="margin-top:14px;">Kaydet</button>
+  `;
+  openSheet(html, () => {
+    renderStampPreview();
+  });
+}
+
+export async function saveVendorProfile(vendorName) {
+  const data = readKunyeFields();
+  try {
+    const profile = await repo.resolveVendorProfile(vendorName);
+    await repo.updateVendorProfile(profile.id, data);
+    toast('Künye güncellendi', 'success');
+    closeSheet();
+    refresh();
+  } catch (e) {
+    toast('Kaydedilemedi: ' + e.message, 'error');
+  }
 }
 
 // ============================================================================
@@ -539,22 +645,19 @@ export async function openCollectionForm(ctx = {}) {
 
   const clients = await repo.getClients();
   const campaigns = clientId ? await repo.getCampaignsForClient(clientId) : [];
+  const clientObj = clientId ? clients.find((c) => c.id === clientId) : null;
+  const campaignObj = campaignId ? campaigns.find((c) => c.id === campaignId) : null;
 
   const html = `
     <button class="close-x" onclick="H.closeSheet()">✕</button>
     <h2>${existing ? 'Tahsilatı Düzenle' : 'Tahsilat Ekle'}</h2>
     <div class="field"><label>Müşteri *</label>
-      <select id="fColClient">
-        <option value="">Seç…</option>
-        ${clients.map((c) => `<option value="${c.id}" ${c.id === clientId ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('')}
-      </select>
+      <input id="fColClient" list="fColClientList" placeholder="Var olan bir müşteri seç veya yeni bir isim yaz" value="${clientObj ? escapeHtml(clientObj.name) : ''}">
+      ${datalist('fColClientList', clients.map((c) => c.name))}
     </div>
     <div class="field"><label>Kampanya *</label>
-      <select id="fColCampaign">
-        ${clientId
-          ? `<option value="">Seç…</option>` + campaigns.map((c) => `<option value="${c.id}" ${c.id === campaignId ? 'selected' : ''}>${escapeHtml(c.name || c.productName)} (${c.startDate} — ${c.endDate})</option>`).join('')
-          : `<option value="">Önce müşteri seç…</option>`}
-      </select>
+      <input id="fColCampaign" list="fColCampaignList" placeholder="Var olan bir kampanya seç veya yeni bir isim yaz" value="${campaignObj ? escapeHtml(campaignObj.name || campaignObj.productName) : ''}">
+      ${datalist('fColCampaignList', campaigns.map((c) => c.name || c.productName))}
     </div>
     <div class="row2">
       <div class="field"><label>Tarih *</label><input id="fColDate" type="date" value="${existing ? existing.date : todayISO()}"></div>
@@ -582,30 +685,38 @@ export async function openCollectionForm(ctx = {}) {
         el.dispatchEvent(new Event('input'));
       }
     }
-    const clientSel = sheet.querySelector('#fColClient');
-    const campSel = sheet.querySelector('#fColCampaign');
+    const clientInput = sheet.querySelector('#fColClient');
+    const campInput = sheet.querySelector('#fColCampaign');
+    const campList = sheet.querySelector('#fColCampaignList');
     const reloadCampaigns = async () => {
-      const cid = clientSel.value;
-      if (!cid) { campSel.innerHTML = '<option value="">Önce müşteri seç…</option>'; return; }
-      const camps = await repo.getCampaignsForClient(cid);
-      campSel.innerHTML = '<option value="">Seç…</option>' + camps.map((c) => `<option value="${c.id}">${escapeHtml(c.name || c.productName)} (${c.startDate} — ${c.endDate})</option>`).join('');
+      const match = clients.find((c) => c.name.trim().toLocaleLowerCase('tr-TR') === clientInput.value.trim().toLocaleLowerCase('tr-TR'));
+      if (!match) { campList.innerHTML = ''; return; }
+      const camps = await repo.getCampaignsForClient(match.id);
+      campList.innerHTML = camps.map((c) => `<option value="${escapeHtml(c.name || c.productName)}">`).join('');
     };
-    clientSel.addEventListener('change', reloadCampaigns);
+    clientInput.addEventListener('input', reloadCampaigns);
+    clientInput.addEventListener('change', reloadCampaigns);
   });
 }
 
 export async function saveCollection(collectionId) {
-  const clientId = document.getElementById('fColClient').value;
-  const campaignId = document.getElementById('fColCampaign').value;
+  const clientNameInput = document.getElementById('fColClient').value.trim();
+  const campaignNameInput = document.getElementById('fColCampaign').value.trim();
   const date = document.getElementById('fColDate').value;
   const amount = document.getElementById('fColAmount').value;
   const paymentType = document.getElementById('fPayType').value;
   const note = document.getElementById('fColNote').value.trim();
 
-  if (!clientId) { toast('Müşteri seçmelisin', 'error'); return; }
-  if (!campaignId) { toast('Kampanya seçmelisin', 'error'); return; }
+  if (!clientNameInput) { toast('Müşteri adını seç veya yaz', 'error'); return; }
+  if (!campaignNameInput) { toast('Kampanya adını seç veya yaz', 'error'); return; }
   if (!date) { toast('Tarih zorunlu', 'error'); return; }
   if (amount === '' || Number(amount) < 0) { toast('Geçerli bir tutar gir', 'error'); return; }
+
+  const client = await resolveOrCreateClient(clientNameInput);
+  const campaign = await resolveOrCreateCampaign(client.id, campaignNameInput);
+  const clientId = client.id;
+  const campaignId = campaign.id;
+  const campaignName = campaign.name || campaign.productName;
 
   const existing = collectionId ? await repo.getCollection(collectionId) : null;
   const existingCheque = existing && existing.chequeId ? await repo.getCheque(existing.chequeId) : null;
@@ -619,9 +730,6 @@ export async function saveCollection(collectionId) {
     return;
   }
 
-  const [client, campaign] = await Promise.all([repo.getClient(clientId), repo.getCampaign(campaignId)]);
-  const campaignName = campaign ? (campaign.name || campaign.productName) : '';
-
   try {
     let chequeId = existing ? existing.chequeId : null;
     if (paymentType === 'Çek') {
@@ -629,7 +737,7 @@ export async function saveCollection(collectionId) {
       if (!dueDate) { toast('Çek vade tarihi zorunlu', 'error'); return; }
       const chequeData = {
         direction: 'received',
-        counterpartyName: client ? client.name : '',
+        counterpartyName: client.name,
         campaignId, campaignName,
         // §73: stamp clientId (when known) so this cheque surfaces on the
         // Customer/Campaign detail pages, not just Finans→Çekler.
@@ -717,6 +825,8 @@ export async function openPaymentForm(ctx = {}) {
   const clients = await repo.getClients();
   const campaigns = clientId ? await repo.getCampaignsForClient(clientId) : [];
   const vendors = await repo.getAllVendorNames();
+  const clientObj = clientId ? clients.find((c) => c.id === clientId) : null;
+  const campaignObj = campaignId ? campaigns.find((c) => c.id === campaignId) : null;
 
   // Pick-list for "Çek" type: every currently-held (unused) cheque, plus —
   // when editing a payment that's already using one, or when arriving here
@@ -738,17 +848,12 @@ export async function openPaymentForm(ctx = {}) {
     <button class="close-x" onclick="H.closeSheet()">✕</button>
     <h2>${existing ? 'Ödemeyi Düzenle' : 'Ödeme Ekle'}</h2>
     <div class="field"><label>Müşteri *</label>
-      <select id="fPayClient">
-        <option value="">Seç…</option>
-        ${clients.map((c) => `<option value="${c.id}" ${c.id === clientId ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('')}
-      </select>
+      <input id="fPayClient" list="fPayClientList" placeholder="Var olan bir müşteri seç veya yeni bir isim yaz" value="${clientObj ? escapeHtml(clientObj.name) : ''}">
+      ${datalist('fPayClientList', clients.map((c) => c.name))}
     </div>
     <div class="field"><label>Kampanya *</label>
-      <select id="fPayCampaign">
-        ${clientId
-          ? `<option value="">Seç…</option>` + campaigns.map((c) => `<option value="${c.id}" ${c.id === campaignId ? 'selected' : ''}>${escapeHtml(c.name || c.productName)} (${c.startDate} — ${c.endDate})</option>`).join('')
-          : `<option value="">Önce müşteri seç…</option>`}
-      </select>
+      <input id="fPayCampaign" list="fPayCampaignList" placeholder="Var olan bir kampanya seç veya yeni bir isim yaz" value="${campaignObj ? escapeHtml(campaignObj.name || campaignObj.productName) : ''}">
+      ${datalist('fPayCampaignList', campaigns.map((c) => c.name || c.productName))}
     </div>
     <div class="field"><label>Yüklenici *</label>
       <input id="fPayVendor" list="vendorListPay" placeholder="Yüklenici seç veya yaz — listede yoksa yeni bir isim de yazabilirsin" value="${vendorPreset ? escapeHtml(vendorPreset) : ''}">
@@ -804,28 +909,30 @@ export async function openPaymentForm(ctx = {}) {
     });
     if (paymentType === 'Çek') syncChequeAmount();
 
-    const clientSel = sheet.querySelector('#fPayClient');
-    const campSel = sheet.querySelector('#fPayCampaign');
+    const clientInput = sheet.querySelector('#fPayClient');
+    const campInput = sheet.querySelector('#fPayCampaign');
+    const campList = sheet.querySelector('#fPayCampaignList');
     const reloadCampaigns = async () => {
-      const cid = clientSel.value;
-      if (!cid) { campSel.innerHTML = '<option value="">Önce müşteri seç…</option>'; return; }
-      const camps = await repo.getCampaignsForClient(cid);
-      campSel.innerHTML = '<option value="">Seç…</option>' + camps.map((c) => `<option value="${c.id}">${escapeHtml(c.name || c.productName)} (${c.startDate} — ${c.endDate})</option>`).join('');
+      const match = clients.find((c) => c.name.trim().toLocaleLowerCase('tr-TR') === clientInput.value.trim().toLocaleLowerCase('tr-TR'));
+      if (!match) { campList.innerHTML = ''; return; }
+      const camps = await repo.getCampaignsForClient(match.id);
+      campList.innerHTML = camps.map((c) => `<option value="${escapeHtml(c.name || c.productName)}">`).join('');
     };
-    clientSel.addEventListener('change', reloadCampaigns);
+    clientInput.addEventListener('input', reloadCampaigns);
+    clientInput.addEventListener('change', reloadCampaigns);
   });
 }
 
 export async function savePayment(paymentId) {
-  const clientId = document.getElementById('fPayClient').value;
-  const campaignId = document.getElementById('fPayCampaign').value;
+  const clientNameInput = document.getElementById('fPayClient').value.trim();
+  const campaignNameInput = document.getElementById('fPayCampaign').value.trim();
   const vendor = document.getElementById('fPayVendor').value.trim();
   const date = document.getElementById('fPayDate').value;
   const paymentType = document.getElementById('fPayType').value;
   const note = document.getElementById('fPayNote').value.trim();
 
-  if (!clientId) { toast('Müşteri seçmelisin', 'error'); return; }
-  if (!campaignId) { toast('Kampanya seçmelisin', 'error'); return; }
+  if (!clientNameInput) { toast('Müşteri adını seç veya yaz', 'error'); return; }
+  if (!campaignNameInput) { toast('Kampanya adını seç veya yaz', 'error'); return; }
   if (!vendor) { toast('Yüklenici seçmelisin', 'error'); return; }
   if (!date) { toast('Tarih zorunlu', 'error'); return; }
 
@@ -847,8 +954,11 @@ export async function savePayment(paymentId) {
     amount = Number(amountRaw);
   }
 
-  const [client, campaign] = await Promise.all([repo.getClient(clientId), repo.getCampaign(campaignId)]);
-  const campaignName = campaign ? (campaign.name || campaign.productName) : '';
+  const client = await resolveOrCreateClient(clientNameInput);
+  const campaign = await resolveOrCreateCampaign(client.id, campaignNameInput);
+  const clientId = client.id;
+  const campaignId = campaign.id;
+  const campaignName = campaign.name || campaign.productName;
 
   try {
     const dueDate = readVadeliDueDate(date);
@@ -980,64 +1090,123 @@ export function openQuickAddMenu() {
   openSheet(html);
 }
 
+// §hizli-ekle-serbest-yazim: bu ikili (quickNewProduct/quickNewCampaign),
+// müşteri/ürün alanlarını daha önce SADECE var olanlar arasından seçilebilen
+// <select> olarak gösteriyordu — kullanıcı yeni bir isim yazmaya çalıştığında
+// hiçbir şey olmuyordu (native <select> yazılan harfe atlar, serbest metin
+// kabul etmez), bu da "elle yazamıyorum" şikayetine yol açtı. Artık uygulamanın
+// geri kalanındaki Mecra Türü/Yüklenici/İş Türü alanlarıyla aynı desen: bir
+// <input list="..."> — var olan bir ismi seçebilirsin YA DA hiç var olmayan
+// yeni bir isim yazabilirsin; yeni yazılan isim onaylayınca otomatik oluşturulur.
+async function resolveOrCreateClient(name) {
+  const trimmed = (name || '').trim();
+  if (!trimmed) return null;
+  const clients = await repo.getClients();
+  const existing = clients.find((c) => c.name.trim().toLocaleLowerCase('tr-TR') === trimmed.toLocaleLowerCase('tr-TR'));
+  if (existing) return existing;
+  return repo.createClient({ name: trimmed });
+}
+
+async function resolveOrCreateProduct(clientId, name) {
+  const trimmed = (name || '').trim();
+  if (!trimmed) return null;
+  const products = await repo.getProductsForClient(clientId);
+  const existing = products.find((p) => p.name.trim().toLocaleLowerCase('tr-TR') === trimmed.toLocaleLowerCase('tr-TR'));
+  if (existing) return existing;
+  return repo.createProduct({ clientId, name: trimmed });
+}
+
+// Tahsilat / Ödeme / Yeni Mecra Kaydı formlarındaki Kampanya alanı da aynı
+// serbest-yazım desenine kavuşuyor (§hizli-ekle-tum-alanlar). Bir kampanya
+// normalde bir ürün + başlangıç/bitiş tarihiister — burada elle hızlı kayıt
+// sırasında bunları sormak akışı kilitler, bu yüzden yazılan isim var olan
+// bir kampanyayla eşleşmezse: aynı isimle bir ürün de otomatik bul/oluştur,
+// başlangıcı bugün / bitişi 30 gün sonrası olan bir kampanya yarat. Tarihler
+// yanlışsa kullanıcı Kampanya Detayı'ndaki kalem simgesiyle (openCampaignForm)
+// saniyeler içinde düzeltebilir — hiçbir alan "girilemez" kalmıyor.
+async function resolveOrCreateCampaign(clientId, name) {
+  const trimmed = (name || '').trim();
+  if (!trimmed) return null;
+  const campaigns = await repo.getCampaignsForClient(clientId);
+  const existing = campaigns.find((c) => (c.name || c.productName || '').trim().toLocaleLowerCase('tr-TR') === trimmed.toLocaleLowerCase('tr-TR'));
+  if (existing) return existing;
+  const client = await repo.getClient(clientId);
+  const product = await resolveOrCreateProduct(clientId, trimmed);
+  const startDate = todayISO();
+  const endDate = addDays(startDate, 30);
+  return repo.createCampaign({
+    clientId, productId: product.id,
+    clientName: client ? client.name : '',
+    productName: product.name,
+    name: trimmed,
+    startDate, endDate, note: ''
+  });
+}
+
 export async function quickNewProduct() {
   const clients = await repo.getClients();
-  if (clients.length === 0) {
-    toast('Önce bir müşteri ekle', 'error');
-    closeSheet();
-    openCustomerForm();
-    return;
-  }
   const html = `
     <button class="close-x" onclick="H.closeSheet()">✕</button>
     <h2>Hangi Müşteri İçin?</h2>
-    <div class="field"><label>Müşteri</label><select id="qpClient">${clients.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('')}</select></div>
-    <button class="btn primary" onclick="H.quickNewProductConfirm()">Devam Et</button>
+    <div class="field"><label>Müşteri</label>
+      <input id="qpClient" list="qpClientList" placeholder="Var olan bir müşteri seç veya yeni bir isim yaz">
+      ${datalist('qpClientList', clients.map((c) => c.name))}
+    </div>
+    <button class="btn primary" onclick="H.guard(this, () => H.quickNewProductConfirm())">Devam Et</button>
   `;
   openSheet(html);
 }
 
-export function quickNewProductConfirm() {
-  const clientId = document.getElementById('qpClient').value;
+export async function quickNewProductConfirm() {
+  const name = document.getElementById('qpClient').value.trim();
+  if (!name) { toast('Müşteri adını seç veya yaz', 'error'); return; }
+  const client = await resolveOrCreateClient(name);
   closeSheet();
-  openProductForm(clientId);
+  openProductForm(client.id);
 }
 
 export async function quickNewCampaign() {
   const clients = await repo.getClients();
-  if (clients.length === 0) {
-    toast('Önce bir müşteri ekle', 'error');
-    closeSheet();
-    openCustomerForm();
-    return;
-  }
-  const firstClientProducts = await repo.getProductsForClient(clients[0].id);
   const html = `
     <button class="close-x" onclick="H.closeSheet()">✕</button>
     <h2>Hangi Ürün İçin?</h2>
-    <div class="field"><label>Müşteri</label><select id="qcClient">${clients.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('')}</select></div>
-    <div class="field"><label>Ürün</label><select id="qcProduct">${firstClientProducts.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('')}</select></div>
-    <button class="btn primary" onclick="H.quickNewCampaignConfirm()">Devam Et</button>
+    <div class="field"><label>Müşteri</label>
+      <input id="qcClient" list="qcClientList" placeholder="Var olan bir müşteri seç veya yeni bir isim yaz">
+      ${datalist('qcClientList', clients.map((c) => c.name))}
+    </div>
+    <div class="field"><label>Ürün</label>
+      <input id="qcProduct" list="qcProductList" placeholder="Önce müşteri seç, sonra ürün seç veya yeni yaz">
+      ${datalist('qcProductList', [])}
+    </div>
+    <button class="btn primary" onclick="H.guard(this, () => H.quickNewCampaignConfirm())">Devam Et</button>
   `;
   openSheet(html, (sheet) => {
-    sheet.querySelector('#qcClient').addEventListener('change', async (e) => {
-      const products = await repo.getProductsForClient(e.target.value);
-      const sel = sheet.querySelector('#qcProduct');
-      if (products.length === 0) {
-        sel.innerHTML = '<option value="">Bu müşterinin ürünü yok</option>';
-      } else {
-        sel.innerHTML = products.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
-      }
-    });
+    // Müşteri alanı, listedeki bir isimle TAM eşleşince (mevcut müşteri
+    // seçildiğinde) o müşterinin ürünlerini Ürün datalist'ine dolduruyor.
+    // Hiç eşleşmezse (yeni/henüz yazılmakta olan bir isimse) ürün listesi
+    // boşalır — zaten yeni bir müşterinin henüz ürünü olamaz.
+    const clientInput = sheet.querySelector('#qcClient');
+    const productList = sheet.querySelector('#qcProductList');
+    const refreshProducts = async () => {
+      const match = clients.find((c) => c.name.trim().toLocaleLowerCase('tr-TR') === clientInput.value.trim().toLocaleLowerCase('tr-TR'));
+      if (!match) { productList.innerHTML = ''; return; }
+      const products = await repo.getProductsForClient(match.id);
+      productList.innerHTML = products.map((p) => `<option value="${escapeHtml(p.name)}">`).join('');
+    };
+    clientInput.addEventListener('input', refreshProducts);
+    clientInput.addEventListener('change', refreshProducts);
   });
 }
 
-export function quickNewCampaignConfirm() {
-  const clientId = document.getElementById('qcClient').value;
-  const productId = document.getElementById('qcProduct').value;
-  if (!productId) { toast('Bu müşterinin önce bir ürünü olmalı', 'error'); return; }
+export async function quickNewCampaignConfirm() {
+  const clientName = document.getElementById('qcClient').value.trim();
+  const productName = document.getElementById('qcProduct').value.trim();
+  if (!clientName) { toast('Müşteri adını seç veya yaz', 'error'); return; }
+  if (!productName) { toast('Ürün adını seç veya yaz', 'error'); return; }
+  const client = await resolveOrCreateClient(clientName);
+  const product = await resolveOrCreateProduct(client.id, productName);
   closeSheet();
-  openCampaignForm(clientId, productId);
+  openCampaignForm(client.id, product.id);
 }
 
 // §nav-redesign: "Mecralar" area's real "add" action — a new mecra/vendor
@@ -1046,38 +1215,44 @@ export function quickNewCampaignConfirm() {
 // page's own "+" (see openMecraQuickAddMenu below).
 export async function quickNewMediaRecord() {
   const clients = await repo.getClients();
-  if (clients.length === 0) {
-    toast('Önce bir müşteri ekle', 'error');
-    closeSheet();
-    openCustomerForm();
-    return;
-  }
-  const firstClientCampaigns = await repo.getCampaignsForClient(clients[0].id);
+  const firstClientCampaigns = clients.length ? await repo.getCampaignsForClient(clients[0].id) : [];
   const html = `
     <button class="close-x" onclick="H.closeSheet()">✕</button>
     <h2>Hangi Kampanya İçin?</h2>
-    <div class="field"><label>Müşteri</label><select id="qmClient">${clients.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('')}</select></div>
-    <div class="field"><label>Kampanya</label><select id="qmCampaign">${firstClientCampaigns.map((c) => `<option value="${c.id}">${escapeHtml(c.name || c.productName)}</option>`).join('')}</select></div>
-    <button class="btn primary" onclick="H.quickNewMediaRecordConfirm()">Devam Et</button>
+    <div class="field"><label>Müşteri</label>
+      <input id="qmClient" list="qmClientList" placeholder="Var olan bir müşteri seç veya yeni bir isim yaz">
+      ${datalist('qmClientList', clients.map((c) => c.name))}
+    </div>
+    <div class="field"><label>Kampanya</label>
+      <input id="qmCampaign" list="qmCampaignList" placeholder="Var olan bir kampanya seç veya yeni bir isim yaz">
+      ${datalist('qmCampaignList', firstClientCampaigns.map((c) => c.name || c.productName))}
+    </div>
+    <button class="btn primary" onclick="H.guard(this, () => H.quickNewMediaRecordConfirm())">Devam Et</button>
   `;
   openSheet(html, (sheet) => {
-    sheet.querySelector('#qmClient').addEventListener('change', async (e) => {
-      const campaigns = await repo.getCampaignsForClient(e.target.value);
-      const sel = sheet.querySelector('#qmCampaign');
-      if (campaigns.length === 0) {
-        sel.innerHTML = '<option value="">Bu müşterinin kampanyası yok</option>';
-      } else {
-        sel.innerHTML = campaigns.map((c) => `<option value="${c.id}">${escapeHtml(c.name || c.productName)}</option>`).join('');
-      }
-    });
+    const clientInput = sheet.querySelector('#qmClient');
+    const campList = sheet.querySelector('#qmCampaignList');
+    const refreshCampaigns = async () => {
+      const match = clients.find((c) => c.name.trim().toLocaleLowerCase('tr-TR') === clientInput.value.trim().toLocaleLowerCase('tr-TR'));
+      if (!match) { campList.innerHTML = ''; return; }
+      const camps = await repo.getCampaignsForClient(match.id);
+      campList.innerHTML = camps.map((c) => `<option value="${escapeHtml(c.name || c.productName)}">`).join('');
+    };
+    clientInput.addEventListener('input', refreshCampaigns);
+    clientInput.addEventListener('change', refreshCampaigns);
+    if (clients.length) clientInput.value = clients[0].name;
   });
 }
 
-export function quickNewMediaRecordConfirm() {
-  const campaignId = document.getElementById('qmCampaign').value;
-  if (!campaignId) { toast('Bu müşterinin önce bir kampanyası olmalı', 'error'); return; }
+export async function quickNewMediaRecordConfirm() {
+  const clientName = document.getElementById('qmClient').value.trim();
+  const campaignName = document.getElementById('qmCampaign').value.trim();
+  if (!clientName) { toast('Müşteri adını seç veya yaz', 'error'); return; }
+  if (!campaignName) { toast('Kampanya adını seç veya yaz', 'error'); return; }
+  const client = await resolveOrCreateClient(clientName);
+  const campaign = await resolveOrCreateCampaign(client.id, campaignName);
   closeSheet();
-  openMediaForm(campaignId);
+  openMediaForm(campaign.id);
 }
 
 // Mecralar / Finans→Mecra page's "+" — was wrongly bound straight to a blank

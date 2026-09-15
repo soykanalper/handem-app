@@ -57,6 +57,25 @@ export const addVendorName = (name) => addToPickList('vendors', name);
 export const addMediaTypeName = (name) => addToPickList('mediaTypes', name);
 export const addWorkTypeName = (name) => addToPickList('workTypes', name);
 
+// §kunye: mecra/yüklenici künye (şirket profili) alanları — Fatura Adresi,
+// Adres, VKN, IBAN, Kaşe fotoğrafı — bu ismin `vendors` kaydına eklenir.
+// `vendors` deposu zaten her mecra kaydında addVendorName ile otomatik
+// dolduruluyordu (sadece {id,name,...} olarak); burada şema/migration
+// gerekmeden aynı kayıt genişletiliyor.
+export const getVendorProfile = (id) => dbGet('vendors', id);
+export async function getVendorByName(name) {
+  const trimmed = (name || '').trim();
+  if (!trimmed) return null;
+  const all = await getCustomVendors();
+  return all.find((v) => v.name.trim().toLocaleLowerCase('tr-TR') === trimmed.toLocaleLowerCase('tr-TR')) || null;
+}
+export async function resolveVendorProfile(name) {
+  const existing = await getVendorByName(name);
+  if (existing) return existing;
+  return createEntity('vendors', { name: (name || '').trim() });
+}
+export const updateVendorProfile = (id, patch) => updateEntity('vendors', id, patch);
+
 export async function getAllVendorNames() {
   const [custom, media] = await Promise.all([getCustomVendors(), getAllMedia()]);
   const fromMedia = media.map((m) => m.vendor).filter(Boolean);

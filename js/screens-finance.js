@@ -7,7 +7,7 @@ import * as calc from './calc.js';
 import * as agg from './aggregate.js';
 import { fmt, fmtN, formatDate, escapeHtml, jsAttr, todayISO, toast } from './util.js';
 import { setTopbar, setContent, setActiveNav, setFabVisible, setFabAction, navigate, refresh, openSheet, closeSheet, openLightbox, confirmDialog } from './ui.js';
-import { avatarHtml, payRowHtml, chequeRowHtml, chequeStatusChip, chequeUsedFragment, emptyState, photoStripHtml, photoGalleryHtml } from './components.js';
+import { avatarHtml, payRowHtml, chequeRowHtml, chequeStatusChip, chequeUsedFragment, emptyState, photoStripHtml, photoGalleryHtml, kunyeCardHtml } from './components.js';
 import { icon } from './icons.js';
 import { isAdmin } from './cloud/team.js';
 
@@ -308,13 +308,17 @@ export async function renderFinanceVendorDetail({ vendor }) {
       <button class="back" onclick="H.goto('/mecra')">${icon('chevronLeft')}</button>
       <div><h1>${escapeHtml(vendorName)}</h1><div class="sub">Mecralar</div></div>
     </div>
-    <div class="right"><button class="icon-btn add" onclick="H.openPaymentForm({vendor:'${jsAttr(vendorName)}'})">${icon('plus')}</button></div>
+    <div class="right">
+      <button class="icon-btn" onclick="H.openVendorProfileForm('${jsAttr(vendorName)}')">${icon('pencil', {size:16})}</button>
+      <button class="icon-btn add" onclick="H.openPaymentForm({vendor:'${jsAttr(vendorName)}'})">${icon('plus')}</button>
+    </div>
   `);
   setContent(`<div class="list-loading">Yükleniyor…</div>`);
 
-  const [data, vendorCheques] = await Promise.all([
+  const [data, vendorCheques, vendorProfile] = await Promise.all([
     agg.getVendorAggregate(vendorName),
-    repo.getChequesForVendor(vendorName)
+    repo.getChequesForVendor(vendorName),
+    repo.getVendorByName(vendorName)
   ]);
 
   let html = '';
@@ -344,6 +348,8 @@ export async function renderFinanceVendorDetail({ vendor }) {
     </div>
   `;
   if (data.totalExcess > 0) html += `<div class="note-box"><b>Fazla Ödeme</b>${fmt(data.totalExcess)}</div>`;
+
+  html += kunyeCardHtml(vendorProfile);
 
   html += `<button class="btn small outline" onclick="H.openPaymentForm({vendor:'${jsAttr(vendorName)}'})">${icon('landmark', { size: 15 })} Ödeme Ekle</button>`;
   html += `<button class="btn small outline" style="margin-top:8px;" onclick="H.openVendorMutabakat('${jsAttr(vendorName)}')">${icon('share', { size: 15 })} Mütabakat Gönder</button>`;

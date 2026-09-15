@@ -8,7 +8,7 @@ import * as agg from './aggregate.js';
 import * as reminders from './reminders.js';
 import { fmt, fmtN, formatDate, escapeHtml, jsAttr, todayISO, hashColor, initials, toast } from './util.js';
 import { setTopbar, setContent, setActiveNav, setFabVisible, setFabAction, navigate, goBack } from './ui.js';
-import { avatarHtml, campaignCardHtml, mediaRowHtml, payRowHtml, chequeRowHtml, reminderRowHtml, emptyState, vatDetailRow, vatBadge } from './components.js';
+import { avatarHtml, campaignCardHtml, mediaRowHtml, payRowHtml, chequeRowHtml, reminderRowHtml, emptyState, vatDetailRow, vatBadge, kunyeCardHtml } from './components.js';
 import { icon } from './icons.js';
 import { isCloudActive } from './cloud/bootstrap.js';
 import { isAdmin } from './cloud/team.js';
@@ -288,6 +288,8 @@ export async function renderClientDetail({ clientId }) {
   if (s.customerExcess > 0) {
     html += `<div class="note-box"><b>Fazla Tahsilat</b>${fmt(s.customerExcess)} bu müşteriden fazladan tahsil edilmiş.</div>`;
   }
+
+  html += kunyeCardHtml(client);
 
   // §nav-redesign: this page now also carries everything that used to live
   // on the separate Finans → Müşteri Detayı screen (Tahsilat Ekle, per-
