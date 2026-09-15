@@ -218,7 +218,11 @@ if ('serviceWorker' in navigator) {
     showUpdateBanner();
   });
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js').then((reg) => {
+    // updateViaCache:'none' — sw.js dosyasının kendisi de HTTP önbelleğinden
+    // değil, her seferinde ağdan kontrol edilsin (§cache-bypass-fix); yoksa
+    // yeni bir sürüm yayınlansa bile tarayıcı sw.js'in eski, önbellekteki
+    // halini "değişmemiş" sanıp güncellemeyi hiç fark etmeyebilir.
+    navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then((reg) => {
       // Ask the browser to re-check sw.js for changes right away, and again
       // whenever the app is brought back to the foreground — otherwise a
       // long-lived tab/PWA instance might not re-check for a long time.
