@@ -80,6 +80,10 @@ a{ color:inherit; }
 .icon{ display:inline-block; vertical-align:middle; flex-shrink:0; }
 .icon-inline{ display:inline-flex; align-items:center; gap:5px; }
 .icon-btn.add{ background:var(--primary); color:#fff; }
+/* §sunum-modu: Ana Sayfa'daki Hesap ikonu Sunum Modu açıkken belirgin bir
+   renge dönüşür — finansal rakamların o an gizli olduğu tek bakışta belli
+   olsun diye (aynı ikon, sadece durum rengi değişiyor — yeni bir ikon yok). */
+.icon-btn.sunum-on{ background:var(--rose-dark); color:#fff; }
 .brand-row{ display:flex; align-items:center; gap:8px; }
 
 /* §takip: Ana Sayfa çan ikonu — üstünde kaç açık hatırlatma varsa küçük
