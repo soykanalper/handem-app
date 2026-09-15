@@ -427,6 +427,33 @@ a{ color:inherit; }
 .mtype-grid .fi .value{ font-size:var(--fs-3); font-weight:var(--fw-semibold); font-family:var(--font-mono); margin-top:2px; }
 .mtype-grid .fi.red .value{ color:var(--rose-dark); }
 
+/* §kalem-takip: Mecra formunda kalem kalem (haftalık/bant/saniye) bütçe
+   takibi — bkz. openMediaForm/saveMedia (screens-forms.js). Sadece bu
+   formda kullanılan, başka hiçbir yerde tanımlı olmayan yeni sınıflar. */
+.kalem-note{ font-size:var(--fs-2); color:var(--ink-faint); margin:4px 0 2px; line-height:1.5; }
+.kalem-note a{ color:var(--primary-dark); font-weight:var(--fw-semibold); }
+
+.switch{ position:relative; width:38px; height:22px; flex-shrink:0; }
+.switch input{ opacity:0; width:100%; height:100%; margin:0; position:absolute; cursor:pointer; z-index:2; }
+.switch .track{ position:absolute; inset:0; background:var(--ink-faint); border-radius:100px; transition:background .15s; }
+.switch .thumb{ position:absolute; top:3px; left:3px; width:16px; height:16px; background:#fff; border-radius:50%; transition:left .15s; box-shadow:0 1px 3px rgba(0,0,0,.25); }
+.switch input:checked + .track{ background:var(--primary); }
+.switch input:checked ~ .thumb{ left:19px; }
+
+.kalem-section{ background:var(--primary-bg); border-radius:14px; padding:12px 12px 13px; margin:2px 0 13px; border:1.5px solid var(--bg-soft2); }
+.kalem-toggle-row{ display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.kalem-toggle-row .ktitle{ font-size:var(--fs-4); font-weight:var(--fw-bold); color:var(--primary-dark); display:flex; align-items:center; gap:6px; }
+.kalem-toggle-row .ktitle svg{ flex-shrink:0; }
+.kalem-list{ display:flex; flex-direction:column; gap:7px; }
+.kalem-row{ display:flex; gap:6px; align-items:center; }
+.kalem-row input.klabel{ flex:1.15; padding:8px 9px; font-size:12.5px; border:1.5px solid var(--border); border-radius:9px; background:var(--bg-card); color:var(--ink); font-family:inherit; min-width:0; }
+.kalem-row input.kamount{ flex:1; padding:8px 9px; font-size:12.5px; border:1.5px solid var(--border); border-radius:9px; background:var(--bg-card); color:var(--ink); font-family:var(--font-mono); text-align:right; min-width:0; }
+.kalem-row input:focus{ border-color:var(--primary); outline:none; }
+.kalem-row .kdel{ background:var(--rose-bg); color:var(--rose-dark); border:none; width:27px; height:27px; border-radius:8px; flex-shrink:0; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; }
+.kalem-add{ margin-top:9px; width:100%; padding:8px; border-radius:9px; border:1.5px dashed var(--primary); background:transparent; color:var(--primary-dark); font-weight:var(--fw-semibold); font-size:12.5px; cursor:pointer; font-family:inherit; }
+.kalem-total{ display:flex; justify-content:space-between; align-items:baseline; margin-top:11px; padding-top:10px; border-top:1px solid var(--bg-soft2); font-size:12.5px; color:var(--primary-dark); font-weight:var(--fw-bold); }
+.kalem-total b{ font-family:var(--font-mono); font-size:14.5px; }
+
 @media (min-width:760px){
   body{ align-items:flex-start; }
   #app{ max-width:1040px; margin:0 auto; min-height:100vh; grid-template-columns:220px 1fr; grid-template-rows:auto 1fr; grid-template-areas:"nav topbar" "nav content"; box-shadow:0 0 0 1px var(--border); }
