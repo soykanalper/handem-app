@@ -18,8 +18,8 @@ import { isCloudConfigured } from '../firebase-config.js';
 import { setDbMode, getDbMode } from './db-router.js';
 import { watchAuthState, logIn, logOut, authErrorMessage } from './auth.js';
 import { countLocalRecords, cloudWorkspaceIsEmpty, migrateLocalToCloud } from './migrate.js';
-import { isAdmin, setLocalModeAdmin, loadAdminStatus, getTeamAdmins, setTeamAdmins } from './team.js';
-import { openSheet, closeSheet, confirmDialog } from '../ui.js';
+import { isAdmin, setLocalModeAdmin, loadAdminStatus, getTeamAdmins, setTeamAdmins, isSunumModu, toggleSunumModu } from './team.js';
+import { openSheet, closeSheet, confirmDialog, refresh } from '../ui.js';
 import { toast, escapeHtml, jsAttr } from '../util.js';
 import { icon } from '../icons.js';
 
@@ -161,6 +161,42 @@ export async function initCloudAndAuth() {
             // once cloud mode is configured (see file header note).
   }
   await readyPromise;
+}
+
+// ---- account icon: kısa bas = Sunum Modu aç/kapa, basılı tut = Hesap menüsü
+// -----------------------------------------------------------------------------
+// §sunum-modu: Ana Sayfa'daki Hesap ikonu artık iki işlevli. Kısa bir dokunuş
+// Sunum Modu'nu aç/kapatır (H.openAccountMenu() DEĞİL — bkz. screens.js'teki
+// buton, artık onclick yerine pointer olaylarıyla bu ikisine bağlı); ikonu
+// basılı tutmak (§LONG_PRESS_MS) eski Hesap menüsünü (Çıkış Yap / Ekip-Roller)
+// açar. Pointer Events (mouse+touch tek API) kullanılıyor ki hem masaüstü hem
+// telefonda aynı şekilde çalışsın.
+const LONG_PRESS_MS = 500;
+let _accountPressTimer = null;
+let _accountLongPressFired = false;
+
+export function accountIconPointerDown() {
+  _accountLongPressFired = false;
+  clearTimeout(_accountPressTimer);
+  _accountPressTimer = setTimeout(() => {
+    _accountLongPressFired = true;
+    openAccountMenu();
+  }, LONG_PRESS_MS);
+}
+
+export function accountIconPointerUp() {
+  clearTimeout(_accountPressTimer);
+  if (!_accountLongPressFired) {
+    const on = toggleSunumModu();
+    toast(on ? 'Sunum Modu açıldı — finansal rakamlar gizlendi' : 'Sunum Modu kapatıldı', 'success');
+    refresh();
+  }
+  _accountLongPressFired = false;
+}
+
+export function accountIconPointerCancel() {
+  clearTimeout(_accountPressTimer);
+  _accountLongPressFired = false;
 }
 
 // ---- account sheet (logged-in users only, see screens.js account button) --

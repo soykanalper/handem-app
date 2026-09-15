@@ -49,7 +49,33 @@ export async function setTeamAdmins(admins) {
 let _isAdmin = true;
 
 export function isAdmin() {
-  return _isAdmin;
+  return _sunumModu ? false : _isAdmin;
+}
+
+// -------- Sunum Modu (personel/sunum görünümü) -------------------------------
+// §sunum-modu: tamamen bu cihaza özel, yerel bir anahtar — gerçek admin
+// listesine hiç dokunmaz, Firestore'a yazılmaz. Açıkken isAdmin() yukarıda
+// bilerek false döner, böylece uygulamadaki TÜM mevcut "personelden gizle"
+// mantığı (screens.js, screens-finance.js, components.js, ...) otomatik
+// devreye girer — ayrı bir gizleme sistemi kurmaya gerek kalmaz. Kapatınca
+// (tekrar aynı anahtara basınca) o telefon anında gerçek admin görünümüne
+// döner. localStorage'da tutulur ki uygulama kapanıp açılsa da unutulmasın.
+const SUNUM_MODU_KEY = 'handem_sunum_modu';
+let _sunumModu = false;
+try { _sunumModu = localStorage.getItem(SUNUM_MODU_KEY) === '1'; } catch (e) { /* private mode vb. — varsayılan kapalı kalır */ }
+
+export function isSunumModu() {
+  return _sunumModu;
+}
+
+export function setSunumModu(on) {
+  _sunumModu = !!on;
+  try { localStorage.setItem(SUNUM_MODU_KEY, _sunumModu ? '1' : '0'); } catch (e) { /* yazılamazsa bile bu oturum için state doğru kalır */ }
+}
+
+export function toggleSunumModu() {
+  setSunumModu(!_sunumModu);
+  return _sunumModu;
 }
 
 // Local/offline mode: always admin, no fetch needed — call this instead of
