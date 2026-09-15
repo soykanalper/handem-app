@@ -172,6 +172,13 @@ a{ color:inherit; }
 .summary-strip{ display:grid; grid-template-columns:repeat(3,1fr); gap:6px; background:var(--bg-soft); border-radius:14px; padding:12px 6px; margin-bottom:14px; }
 .summary-strip .si{ text-align:center; min-width:0; }
 .summary-strip .si .label{ font-size:var(--fs-1); text-transform:uppercase; color:var(--ink-soft); font-weight:var(--fw-semibold); }
+/* §tasarim-kucuk-yazilar: "(KDV Hariç)" / "(KDV Dahil)" gibi ana etikete
+   eklenen açıklayıcı ekler artık ana etiketle AYNI punto/kalınlıkta değil —
+   hemen altında, daha ince ve daha küçük, belli belirsiz bir alt satır.
+   `color` bilerek miras bırakılıyor (inherit) + opacity ile soluklaştırılıyor,
+   böylece hem gri `.si` zemininde hem de yeşil `.profit-banner` gibi renkli
+   zeminlerde okunabilir kalıyor. */
+.sub-label{ display:block; font-size:7.5px; font-weight:var(--fw-medium); text-transform:uppercase; letter-spacing:0.25px; opacity:0.55; margin-top:1px; }
 .summary-strip .si .value{ font-size:var(--fs-5); font-weight:var(--fw-bold); font-family:var(--font-mono); margin-top:3px; overflow:hidden; text-overflow:ellipsis; }
 .summary-strip .si.green .value{ color:var(--green-dark); }
 .summary-strip .si.red .value{ color:var(--rose-dark); }
