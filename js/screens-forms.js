@@ -6,6 +6,7 @@
 // ---------------------------------------------------------------------------
 import * as repo from './repo.js';
 import * as calc from './calc.js';
+import * as agg from './aggregate.js';
 import { fmt, fmtN, todayISO, addDays, daysBetween, formatDate, escapeHtml, jsAttr, toast, uid } from './util.js';
 import { openSheet, closeSheet, navigate, refresh, openLightbox, noteFieldHtml, confirmDialog } from './ui.js';
 import { pickPhoto } from './photo.js';
@@ -499,6 +500,128 @@ export async function saveVendorProfile(vendorName) {
 }
 
 // ============================================================================
+// MECRA "+" — Yeni Mecra / Yüklenici (§mecra-hizli-ekle)
+// Tek formda: Mecra Türü + Yüklenici (zorunlu) + künye (isteğe bağlı) + varsa
+// ilk ticaret (Müşteri/Kampanya/İş Türü/Alış/Satış/KDV/Ristorno, isteğe
+// bağlı — Yeni Kampanya'daki aynı "ya hepsi ya hiçbiri" mantığı). Ticaret
+// girilirse kampanyanın içine, girilmezse yüklenicinin kendi Finans
+// sayfasına gider — künye orada zaten görünür.
+// ============================================================================
+export async function openVendorQuickAddForm() {
+  const [mediaTypes, vendors, workTypes, clients] = await Promise.all([
+    repo.getAllMediaTypeNames(), repo.getAllVendorNames(), repo.getAllWorkTypeNames(), repo.getClients()
+  ]);
+  const html = `
+    <button class="close-x" onclick="H.closeSheet()">✕</button>
+    <h2>Yeni Mecra / Yüklenici</h2>
+    <div class="field"><label>Mecra Türü *</label>
+      <input id="fvMediaType" list="fvMediaTypeList" placeholder="TV, Radyo, Dijital…">
+      ${datalist('fvMediaTypeList', mediaTypes)}
+    </div>
+    <div class="field"><label>Yüklenici *</label>
+      <input id="fvVendor" list="fvVendorList" placeholder="Örn: Show TV">
+      ${datalist('fvVendorList', vendors)}
+    </div>
+    <div class="section-title" style="margin-top:4px;">Künye <span class="hint">(isteğe bağlı)</span></div>
+    ${kunyeFieldsHtml(null)}
+    <div class="detail-divider" style="margin:14px 0;"></div>
+    <p class="hint" style="margin:0 0 10px;">${icon('landmark', { size: 13, className: 'icon-inline' })} İlk alışverişi de hemen kaydetmek istersen aşağıyı doldur, istemezsen boş bırak — sadece yüklenici + künye kaydedilir, ticareti daha sonra kampanya içinden eklersin.</p>
+    <div class="field"><label>Müşteri</label>
+      <input id="fvClient" list="fvClientList" placeholder="Var olan bir müşteri seç veya yeni yaz">
+      ${datalist('fvClientList', clients.map((c) => c.name))}
+    </div>
+    <div class="field"><label>Kampanya Adı</label>
+      <input id="fvCampaign" list="fvCampaignList" placeholder="Boş bırakılırsa müşteri adı kullanılır">
+      ${datalist('fvCampaignList', [])}
+    </div>
+    <div class="field"><label>İş Türü</label>
+      <input id="fvWorkType" list="fvWorkTypeList" placeholder="Reklam, Sponsorluk…">
+      ${datalist('fvWorkTypeList', workTypes)}
+    </div>
+    <div class="row2">
+      <div class="field"><label>Alış Tutarı <span class="hint">(KDV Hariç)</span></label><input id="fvPurchase" type="number" step="0.01"></div>
+      <div class="field"><label>Satış Tutarı <span class="hint">(KDV Hariç)</span></label><input id="fvSales" type="number" step="0.01"></div>
+    </div>
+    <div class="row2">
+      <div class="field"><label>Ristorno %</label><input id="fvRistorno" type="number" step="0.01" value="0"></div>
+      <div class="field"><label>KDV</label>
+        <select id="fvVat">
+          ${calc.VAT_RATES.map((r) => `<option value="${r.value}">${r.label}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <button class="btn primary" onclick="H.guard(this, () => H.saveVendorQuickAdd())">Kaydet</button>
+  `;
+  openSheet(html, (sheet) => {
+    renderStampPreview();
+    const clientInput = sheet.querySelector('#fvClient');
+    const campList = sheet.querySelector('#fvCampaignList');
+    const refreshCampaigns = async () => {
+      const match = clients.find((c) => c.name.trim().toLocaleLowerCase('tr-TR') === clientInput.value.trim().toLocaleLowerCase('tr-TR'));
+      if (!match) { campList.innerHTML = ''; return; }
+      const camps = await repo.getCampaignsForClient(match.id);
+      campList.innerHTML = camps.map((c) => `<option value="${escapeHtml(c.name || c.productName)}">`).join('');
+    };
+    clientInput.addEventListener('input', refreshCampaigns);
+    clientInput.addEventListener('change', refreshCampaigns);
+  });
+}
+
+export async function saveVendorQuickAdd() {
+  const mediaType = document.getElementById('fvMediaType').value.trim();
+  const vendor = document.getElementById('fvVendor').value.trim();
+  if (!mediaType) { toast('Mecra türü zorunlu', 'error'); return; }
+  if (!vendor) { toast('Yüklenici zorunlu', 'error'); return; }
+
+  const kunye = readKunyeFields();
+  const clientName = document.getElementById('fvClient').value.trim();
+  let campaignName = document.getElementById('fvCampaign').value.trim();
+  const workType = document.getElementById('fvWorkType').value.trim();
+  const purchase = document.getElementById('fvPurchase').value;
+  const sales = document.getElementById('fvSales').value;
+  const ristornoPercent = document.getElementById('fvRistorno').value;
+  const vatRateRaw = document.getElementById('fvVat').value;
+
+  const tradeFilled = [clientName, workType, purchase, sales].some((v) => v !== '');
+  const tradeComplete = clientName && workType && purchase !== '' && sales !== '';
+  if (tradeFilled && !tradeComplete) {
+    toast('İlk alışverişi kaydetmek istiyorsan Müşteri, İş Türü, Alış ve Satış tutarlarının hepsini gir (ya da hepsini boş bırak)', 'error');
+    return;
+  }
+
+  try {
+    await Promise.all([repo.addMediaTypeName(mediaType), repo.addVendorName(vendor)]);
+    const profile = await repo.resolveVendorProfile(vendor);
+    await repo.updateVendorProfile(profile.id, kunye);
+
+    if (tradeComplete) {
+      if (!campaignName) campaignName = clientName;
+      const client = await resolveOrCreateClient(clientName);
+      const campaign = await resolveOrCreateCampaign(client.id, campaignName);
+      await repo.addWorkTypeName(workType);
+      const vatRate = vatRateRaw === '' ? null : Number(vatRateRaw);
+      await repo.createMedia({
+        campaignId: campaign.id,
+        campaignName: campaign.name || campaign.productName,
+        clientId: client.id, clientName: client.name, productId: campaign.productId,
+        mediaType, vendor, workType,
+        purchase: Number(purchase), sales: Number(sales), ristornoPercent: Number(ristornoPercent) || 0,
+        vatRate, startDate: '', endDate: '', note: ''
+      });
+      closeSheet();
+      toast('Mecra ve kampanya kaydı eklendi', 'success');
+      navigate('/campaigns/' + campaign.id);
+    } else {
+      closeSheet();
+      toast('Yüklenici eklendi', 'success');
+      navigate('/finance/vendor/' + encodeURIComponent(vendor));
+    }
+  } catch (e) {
+    toast('Kaydedilemedi: ' + e.message, 'error');
+  }
+}
+
+// ============================================================================
 // FATURA / DEKONT (Invoice attachment) — §fatura-dekont
 // Müşteri ve Mecra/Yüklenici finans kartlarında ortak — kestiğimiz veya
 // aldığımız fatura/dekontu ekle/gör/sil. Çek deseninin sadeleştirilmiş
@@ -507,6 +630,14 @@ export async function saveVendorProfile(vendorName) {
 // için yüklenici adı (çek/ödeme'deki aynı "vendor adıyla eşleştirme" deseni).
 // ============================================================================
 let invoicePhotos = []; // transient dataURL[] — formPhotos ile aynı desen, ayrı değişken
+// §fatura-hizli-ekle: Finans'ın genel "+" menüsünden (Fatura Ekle) açılan akış
+// önce hangi müşteri/mecra, sonra hangi kampanya/hangi tahsilat-ödeme ile
+// ilişkili olduğunu soruyor — bu ara adımların seçtiği bilgi, formu asıl açan
+// openInvoiceForm'a bu transient üzerinden taşınıyor (stampPhoto/formPhotos
+// ile aynı desen). Müşteri/mecra sayfasının kendi "+Ekle" bağlantısından
+// (bağlam zaten belli) açıldığında bu adımlar atlanır, invoiceQuickCtx boş kalır.
+let invoiceQuickCtx = {};
+let invoiceStep2Campaigns = []; // transient — openInvoiceEntityStep2 -> confirmInvoiceStep2 arası kampanya listesi
 
 function invoicePhotoSectionHtml() {
   return `
@@ -546,14 +677,143 @@ export function removeInvoicePhoto(index) {
   renderInvoicePhotoPreview();
 }
 
+// Finans "+" → Fatura Ekle'nin giriş noktası. `ctx.clientId`/`ctx.vendor`
+// zaten biliniyorsa (o müşteri/mecranın sayfasındaysan) doğrudan 2. adıma
+// (kampanya/ilgili kayıt seçimi) geçer; ikisi de boşsa önce Müşteri mi Mecra
+// mı diye sorar.
+export async function openInvoiceQuickAdd(ctx = {}) {
+  if (ctx.clientId) {
+    const client = await repo.getClient(ctx.clientId);
+    return openInvoiceEntityStep2('client', ctx.clientId, client ? client.name : '');
+  }
+  if (ctx.vendor) {
+    return openInvoiceEntityStep2('vendor', ctx.vendor, ctx.vendor);
+  }
+  const html = `
+    <button class="close-x" onclick="H.closeSheet()">✕</button>
+    <h2>Fatura / Dekont Ekle</h2>
+    <p class="hint" style="margin-bottom:10px;">Hangisi için?</p>
+    <div class="action-sheet-list">
+      <button class="action-item" onclick="H.openInvoicePickEntity('client')"><span class="ico">${icon('users', { size: 18 })}</span>Müşteri</button>
+      <button class="action-item" onclick="H.openInvoicePickEntity('vendor')"><span class="ico">${icon('monitor', { size: 18 })}</span>Mecra / Yüklenici</button>
+    </div>
+  `;
+  openSheet(html);
+}
+
+export async function openInvoicePickEntity(kind) {
+  if (kind === 'client') {
+    const clients = await repo.getClients();
+    const html = `
+      <button class="close-x" onclick="H.closeSheet()">✕</button>
+      <h2>Hangi Müşteri?</h2>
+      <div class="field"><label>Müşteri</label>
+        <input id="fInvEntityName" list="fInvEntityList" placeholder="Müşteri adı yaz veya seç">
+        ${datalist('fInvEntityList', clients.map((c) => c.name))}
+      </div>
+      <button class="btn primary" onclick="H.guard(this, () => H.confirmInvoiceEntity('client'))">Devam Et</button>
+    `;
+    openSheet(html);
+  } else {
+    const vendors = await repo.getAllVendorNames();
+    const html = `
+      <button class="close-x" onclick="H.closeSheet()">✕</button>
+      <h2>Hangi Mecra / Yüklenici?</h2>
+      <div class="field"><label>Yüklenici</label>
+        <input id="fInvEntityName" list="fInvEntityList" placeholder="Yüklenici adı yaz veya seç">
+        ${datalist('fInvEntityList', vendors)}
+      </div>
+      <button class="btn primary" onclick="H.guard(this, () => H.confirmInvoiceEntity('vendor'))">Devam Et</button>
+    `;
+    openSheet(html);
+  }
+}
+
+export async function confirmInvoiceEntity(kind) {
+  const name = document.getElementById('fInvEntityName').value.trim();
+  if (!name) { toast(kind === 'client' ? 'Müşteri adını yaz' : 'Yüklenici adını yaz', 'error'); return; }
+  if (kind === 'client') {
+    const client = await resolveOrCreateClient(name);
+    return openInvoiceEntityStep2('client', client.id, client.name);
+  }
+  await repo.addVendorName(name);
+  return openInvoiceEntityStep2('vendor', name, name);
+}
+
+// Fatura akışının 2. adımı: bu müşteri/mecra için isteğe bağlı olarak hangi
+// kampanya (iş) ve hangi tahsilat/ödeme kaydıyla ilişkili olduğunu sor —
+// ikisi de boş bırakılabilir, genel bir fatura olarak kaydedilir.
+async function openInvoiceEntityStep2(entityType, entityId, entityLabel) {
+  let campaigns = [];
+  let records = [];
+  if (entityType === 'client') {
+    [campaigns, records] = await Promise.all([
+      repo.getCampaignsForClient(entityId),
+      repo.getCollectionsForClient(entityId)
+    ]);
+  } else {
+    const [data, payments] = await Promise.all([
+      agg.getVendorAggregate(entityId),
+      repo.getPaymentsForVendor(entityId)
+    ]);
+    campaigns = data.campaigns.map((c) => c.campaign);
+    records = payments;
+  }
+  const html = `
+    <button class="close-x" onclick="H.closeSheet()">✕</button>
+    <h2>${escapeHtml(entityLabel)}</h2>
+    <div class="field"><label>Hangi İş / Kampanya <span class="hint">(isteğe bağlı)</span></label>
+      <select id="fInvCampaignSel">
+        <option value="">Seçme (genel fatura)</option>
+        ${campaigns.map((c) => `<option value="${c.id}">${escapeHtml(c.name || c.productName)}</option>`).join('')}
+      </select>
+    </div>
+    <div class="field"><label>Hangi ${entityType === 'client' ? 'Tahsilat' : 'Ödeme'} İçin <span class="hint">(isteğe bağlı)</span></label>
+      <select id="fInvRelatedSel">
+        <option value="">Seçme</option>
+        ${records.map((r) => `<option value="${r.id}">${formatDate(r.date)} · ${fmt(r.amount)}${r.campaignName ? ' · ' + escapeHtml(r.campaignName) : ''}</option>`).join('')}
+      </select>
+    </div>
+    <button class="btn primary" onclick="H.guard(this, () => H.confirmInvoiceStep2('${entityType}','${jsAttr(entityId)}','${jsAttr(entityLabel)}'))">Devam Et</button>
+  `;
+  openSheet(html, () => {
+    invoiceStep2Campaigns = campaigns;
+  });
+}
+
+export async function confirmInvoiceStep2(entityType, entityId, entityLabel) {
+  const campaignId = document.getElementById('fInvCampaignSel').value || '';
+  const relatedId = document.getElementById('fInvRelatedSel').value || '';
+  const campaigns = invoiceStep2Campaigns;
+  const campaign = campaignId ? campaigns.find((c) => c.id === campaignId) : null;
+  invoiceQuickCtx = {
+    campaignId,
+    campaignName: campaign ? (campaign.name || campaign.productName) : '',
+    relatedId,
+    relatedType: entityType === 'client' ? 'collection' : 'payment'
+  };
+  closeSheet();
+  openInvoiceForm(entityType, entityId, null);
+}
+
 export async function openInvoiceForm(entityType, entityId, invoiceId) {
   const existing = invoiceId ? await repo.getInvoice(invoiceId) : null;
   invoicePhotos = existing && existing.photos ? existing.photos.slice() : [];
   const direction = existing ? existing.direction : 'kesilen';
+  const campaignName = existing ? (existing.campaignName || '') : (invoiceQuickCtx.campaignName || '');
+  if (!existing) {
+    // Yeni fatura: quick-add adımlarında seçilen bağlam kullanılacak, kaydettikten
+    // sonra sıfırlanır (aşağıda saveInvoice'da). Doğrudan bir müşteri/mecra
+    // sayfasının "+Ekle" bağlantısından açıldıysa invoiceQuickCtx zaten boştur.
+  } else {
+    // Var olan bir faturayı düzenlerken kendi kayıtlı bağlamını kullan.
+    invoiceQuickCtx = { campaignId: existing.campaignId || '', campaignName: existing.campaignName || '', relatedId: existing.relatedId || '', relatedType: existing.relatedType || '' };
+  }
 
   const html = `
     <button class="close-x" onclick="H.closeSheet()">✕</button>
     <h2>${existing ? 'Fatura / Dekontu Düzenle' : 'Fatura / Dekont Ekle'}</h2>
+    ${campaignName ? `<p class="hint" style="margin-bottom:10px;">${icon('megaphone', { size: 13, className: 'icon-inline' })} ${escapeHtml(campaignName)}</p>` : ''}
     <div class="field"><label>Yön</label>
       <select id="fInvDirection">
         <option value="kesilen" ${direction === 'kesilen' ? 'selected' : ''}>Kestiğimiz Fatura</option>
@@ -586,6 +846,10 @@ export async function saveInvoice(entityType, entityId, invoiceId) {
   const data = {
     entityType, entityId,
     direction, no, date, amount, note,
+    campaignId: invoiceQuickCtx.campaignId || '',
+    campaignName: invoiceQuickCtx.campaignName || '',
+    relatedId: invoiceQuickCtx.relatedId || '',
+    relatedType: invoiceQuickCtx.relatedType || '',
     photos: invoicePhotos.slice()
   };
   try {
@@ -597,8 +861,13 @@ export async function saveInvoice(entityType, entityId, invoiceId) {
       toast('Fatura/dekont eklendi', 'success');
     }
     invoicePhotos = [];
+    invoiceQuickCtx = {};
     closeSheet();
-    refresh();
+    // Kaydedilen kaydı hemen görebilsin diye o müşterinin/mecranın kendi
+    // Finans sayfasına götür (§fatura-hizli-ekle) — farklı bir Finans
+    // sayfasından hızlı eklenmiş olsa bile.
+    if (entityType === 'client') navigate('/customers/' + entityId);
+    else navigate('/finance/vendor/' + encodeURIComponent(entityId));
   } catch (e) {
     toast('Kaydedilemedi: ' + e.message, 'error');
   }
@@ -1202,6 +1471,28 @@ export function openQuickAddMenu() {
       <button class="action-item" onclick="H.closeSheet();H.openCollectionForm({})"><span class="ico">${icon('banknote', { size: 18 })}</span>Tahsilat Ekle</button>
       <button class="action-item" onclick="H.closeSheet();H.openPaymentForm({})"><span class="ico">${icon('landmark', { size: 18 })}</span>Ödeme Ekle</button>
       <button class="action-item" onclick="H.quickNewCheque()"><span class="ico">${icon('receipt', { size: 18 })}</span>Çek Ekle</button>
+    </div>
+  `;
+  openSheet(html);
+}
+
+// ============================================================================
+// FİNANS "+" — Finans'ın neresinde olursan ol aynı 4 seçenek: Tahsilat /
+// Ödeme / Çek / Fatura Ekle. `ctx.clientId` / `ctx.vendor` verilirse (o
+// müşteri/mecranın sayfasındaysan) Tahsilat/Ödeme/Fatura o kayda önceden
+// dolu açılır; verilmezse (genel Finans sayfaları) boş açılır.
+// ============================================================================
+export function openFinanceQuickAddMenu(ctx = {}) {
+  const clientId = ctx.clientId || '';
+  const vendor = ctx.vendor || '';
+  const html = `
+    <button class="close-x" onclick="H.closeSheet()">✕</button>
+    <h2>Finans İşlemi Ekle</h2>
+    <div class="action-sheet-list">
+      <button class="action-item" onclick="H.closeSheet();H.openCollectionForm({clientId:'${jsAttr(clientId)}'})"><span class="ico">${icon('banknote', { size: 18 })}</span>Tahsilat Ekle</button>
+      <button class="action-item" onclick="H.closeSheet();H.openPaymentForm({vendor:'${jsAttr(vendor)}'})"><span class="ico">${icon('landmark', { size: 18 })}</span>Ödeme Ekle</button>
+      <button class="action-item" onclick="H.quickNewCheque()"><span class="ico">${icon('receipt', { size: 18 })}</span>Çek Ekle</button>
+      <button class="action-item" onclick="H.closeSheet();H.openInvoiceQuickAdd({clientId:'${jsAttr(clientId)}', vendor:'${jsAttr(vendor)}'})"><span class="ico">${icon('receipt', { size: 18 })}</span>Fatura Ekle</button>
     </div>
   `;
   openSheet(html);

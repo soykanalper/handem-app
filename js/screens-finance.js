@@ -40,7 +40,7 @@ export async function renderFinanceHome() {
 export async function renderFinanceCustomerList() {
   setActiveNav('finance');
   setFabVisible(true);
-  setFabAction(() => window.H.openCollectionForm({}));
+  setFabAction(() => window.H.openFinanceQuickAddMenu({}));
   financeTopbar('Müşteri');
   setContent(`<div class="list-loading">Yükleniyor…</div>`);
 
@@ -187,10 +187,10 @@ async function vendorHierarchyBody() {
 export async function renderMecraHome() {
   setActiveNav('mecra');
   setFabVisible(true);
-  setFabAction(() => window.H.openMecraQuickAddMenu());
+  setFabAction(() => window.H.openVendorQuickAddForm());
   setTopbar(`
     <div class="left"><h1>Mecralar</h1></div>
-    <div class="right"><button class="icon-btn add" onclick="H.openMecraQuickAddMenu()">${icon('plus')}</button></div>
+    <div class="right"><button class="icon-btn add" onclick="H.openVendorQuickAddForm()">${icon('plus')}</button></div>
   `);
   setContent(`<div class="list-loading">Yükleniyor…</div>`);
   setContent(await vendorHierarchyBody());
@@ -203,7 +203,7 @@ export async function renderMecraHome() {
 export async function renderFinanceVendorList() {
   setActiveNav('finance');
   setFabVisible(true);
-  setFabAction(() => window.H.openPaymentForm({}));
+  setFabAction(() => window.H.openFinanceQuickAddMenu({}));
   financeTopbar('Mecra');
   setContent(`<div class="list-loading">Yükleniyor…</div>`);
 
@@ -310,7 +310,7 @@ export async function renderFinanceVendorDetail({ vendor }) {
     </div>
     <div class="right">
       <button class="icon-btn" onclick="H.openVendorProfileForm('${jsAttr(vendorName)}')">${icon('pencil', {size:16})}</button>
-      <button class="icon-btn add" onclick="H.openPaymentForm({vendor:'${jsAttr(vendorName)}'})">${icon('plus')}</button>
+      <button class="icon-btn add" onclick="H.openFinanceQuickAddMenu({vendor:'${jsAttr(vendorName)}'})">${icon('plus')}</button>
     </div>
   `);
   setContent(`<div class="list-loading">Yükleniyor…</div>`);
@@ -436,12 +436,10 @@ function chequeGroupSectionHtml(title, list, { urgent } = {}) {
 export async function renderCheques() {
   setActiveNav('finance');
   setFabVisible(true);
-  setFabAction(() => window.H.openCollectionForm({ presetPaymentType: 'Çek' }));
-  // §nav-redesign: this list had no "+" at all before — the only way to get
-  // a new cheque was indirectly, through a Tahsilat form. Now it's one tap:
-  // opens the same Tahsilat form pre-set to Çek, which is the only real way
-  // a cheque is ever born in this app.
-  financeTopbar('Çekler', `<button class="icon-btn add" onclick="H.openCollectionForm({presetPaymentType:'Çek'})">${icon('plus')}</button>`);
+  setFabAction(() => window.H.openFinanceQuickAddMenu({}));
+  // §+-buton-overhaul: diğer Finans sayfalarıyla tutarlı olsun diye burası da
+  // artık ortak Finans menüsünü açıyor (Tahsilat/Ödeme/Çek/Fatura).
+  financeTopbar('Çekler', `<button class="icon-btn add" onclick="H.openFinanceQuickAddMenu({})">${icon('plus')}</button>`);
   setContent(`<div class="list-loading">Yükleniyor…</div>`);
 
   const all = await repo.getAllCheques();

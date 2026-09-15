@@ -190,15 +190,11 @@ export async function clearAllReminders() {
 export async function renderCustomers() {
   setActiveNav('customers');
   setFabVisible(true);
-  // Sayfanın kendi "+" (üstte) yeni müşteri ekler; alttaki FAB bu alanın
-  // para-hareketi kısayolu olarak Tahsilat Ekle açar (§nav-redesign).
-  setFabAction(() => window.H.openCollectionForm({}));
+  // FAB yeni müşteri ekler (§+-buton-overhaul) — üstteki ayrı "+" gereksizdi, kaldırıldı.
+  setFabAction(() => window.H.openCustomerForm());
   setTopbar(`
     <div class="brand-row">
       <img src="icons/logo.png" alt="Hande'M" class="brand-logo-img">
-    </div>
-    <div class="right">
-      <button class="icon-btn add" onclick="H.openCustomerForm()">${icon('plus')}</button>
     </div>
   `, 'brand-centered');
   setContent(`<div class="list-loading">Yükleniyor…</div>`);
@@ -211,7 +207,7 @@ export async function renderCustomers() {
   const filtered = results.filter((r) => r.client.name.toLowerCase().includes(customerSearch.toLowerCase()));
 
   if (results.length === 0) {
-    html += emptyState(icon('users', { size: 32 }), 'Henüz müşterin yok', 'Sağ üstteki + ile başla.');
+    html += emptyState(icon('users', { size: 32 }), 'Henüz müşterin yok', 'Aşağıdaki + ile başla.');
   } else if (filtered.length === 0) {
     html += emptyState(icon('search', { size: 32 }), 'Sonuç bulunamadı', 'Farklı bir arama dene.');
   } else {
@@ -255,9 +251,9 @@ export async function renderClientDetail({ clientId }) {
   const client = await repo.getClient(clientId);
   if (!client) { navigate('/customers'); return; }
 
-  // Üstteki "+" ürün ekler (yapısal); FAB bu müşteriye önceden dolu Tahsilat
-  // Ekle açar — kampanyanın içine girmeden hızlı kayıt (§nav-redesign).
-  setFabAction(() => window.H.openCollectionForm({ clientId: client.id }));
+  // Üstteki "+" ürün ekler (yapısal); FAB bu müşteriye önceden dolu Finans
+  // menüsü açar — Tahsilat/Ödeme/Çek/Fatura hepsi buradan (§+-buton-overhaul).
+  setFabAction(() => window.H.openFinanceQuickAddMenu({ clientId: client.id }));
 
   setTopbar(`
     <div class="left">
