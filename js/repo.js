@@ -27,6 +27,32 @@ export const RADIO_CHANNELS = [
   'Virgin Radio Türkiye', 'Açık Radyo', 'Radyo Viva', 'Radyo Eksen'
 ];
 
+// §is-turu-kuratorlu: TV_CHANNELS/RADIO_CHANNELS ile aynı mantık — her mecra
+// türünde medya planlamada gerçekten var olan reklam/iş türlerinin
+// (araştırılmış, güncel) küratörlü bir listesi. getWorkTypeNamesForType bu
+// listeyi kullanıcının o türde bugüne kadar kendi elle girdiği gerçek iş
+// türleriyle birleştirir — "Diğer" ve tanınmayan türlerde küratörlü liste
+// yok, sadece geçmiş kayıtlar + her zaman açık olan "elle yaz" seçeneği.
+// screens-forms.js'teki kalemFlavorForWorkType bu isimlerin çoğunu anahtar
+// kelimeyle tanıyıp haftalık/adet/saniye takip birimini otomatik seçiyor.
+export const WORK_TYPES_BY_MEDIA_TYPE = {
+  'TV': ['Spot Reklam', 'Bant Reklam', 'Kuşak Reklam', 'Program Sponsorluk', 'Dizi Sponsorluk', 'Jenerik Altı Reklam', 'Ürün Yerleştirme', 'Advertorial'],
+  'Radio': ['Spot Reklam', 'Jingle', 'Canlı Anons', 'Program Sponsorluk', 'Kuşak Reklam', 'Trafik / Hava Durumu Sponsorluk', 'Yarışma / Etkinlik Sponsorluk', 'Podcast Reklamı'],
+  'Gazete': ['Tam Sayfa İlan', 'Yarım Sayfa İlan', 'Künye Reklamı', 'Advertorial', 'İlan Sponsorluk', 'Ek / Kupon Reklamı'],
+  'Açık Hava': ['Billboard', 'Megalight', 'Megaboard', 'Raket (CLP)', 'Totem', 'Bina Giydirme', 'Araç Giydirme', 'Dijital LED Ekran', 'Cadde Bayrağı', 'Otobüs Durağı', 'Yer Grafiği'],
+  'Dijital': ['Display / Banner Reklam', 'Arama Ağı Reklamı', 'Video Reklam', 'Native / Sponsorlu İçerik', 'E-posta Sponsorluk', 'Retargeting'],
+  'Sosyal Medya': ['Sponsorlu Gönderi', 'Story Reklamı', 'Reels Reklamı', 'Marka İşbirliği', 'Topluluk Yönetimi'],
+  'YouTube': ['Pre-roll Reklam', 'Mid-roll Reklam', 'Ürün Yerleştirme', 'Kanal Sponsorluk', 'Dedicated Video'],
+  'Instagram': ['Sponsorlu Gönderi', 'Story Reklamı', 'Reels İşbirliği', 'Canlı Yayın Sponsorluk'],
+  'Influencer': ['Ürün Yerleştirme', 'Sponsorlu Paylaşım', 'Etkinlik Katılımı', 'Uzun Vadeli Marka Elçiliği'],
+  'Sinema': ['Fragman Öncesi Reklam', 'Salon Sponsorluk', 'Gişe Sponsorluk', 'Promosyon Etkinliği']
+};
+function curatedWorkTypesForType(mediaType) {
+  const typeKey = normKey(mediaType);
+  const matchKey = Object.keys(WORK_TYPES_BY_MEDIA_TYPE).find((k) => normKey(k) === typeKey);
+  return matchKey ? WORK_TYPES_BY_MEDIA_TYPE[matchKey] : [];
+}
+
 // -------- clients ------------------------------------------------------------
 export const getClients = () => dbGetAll('clients');
 export const getClient = (id) => dbGet('clients', id);
@@ -161,13 +187,17 @@ export async function getVendorNamesForType(mediaType) {
 
 // §is-turu-secmeli: Yüklenici'nin aynısı — bir mecra türünde bugüne kadar
 // gerçekten kullanılmış TÜM iş türlerini getirir (sabit DEFAULT_WORK_TYPES
-// listesiyle sınırlı kalmadan — "3 taneyle sınırlı kalma" talebi budur).
-// Hiç kayıt yoksa boş döner, elle yazma her zaman açık kalır.
+// listesiyle sınırlı kalmadan — "3 taneyle sınırlı kalma" talebi budur),
+// ARTIK bu türün WORK_TYPES_BY_MEDIA_TYPE'taki küratörlü (medya planlamada
+// gerçekten var olan) iş türleriyle birleşik olarak — hiç geçmiş kaydı
+// olmayan bir mecra türünde bile alan boş gelmesin diye. Elle yazma her
+// zaman açık kalır, hiçbir veri kaybı olmaz.
 export async function getWorkTypeNamesForType(mediaType) {
   const media = await getAllMedia();
   const typeKey = normKey(mediaType);
   const used = media.filter((m) => normKey(m.mediaType) === typeKey).map((m) => m.workType).filter(Boolean);
-  return dedupeNames(used).sort((a, b) => a.localeCompare(b, 'tr'));
+  const curated = curatedWorkTypesForType(mediaType);
+  return dedupeNames([...curated, ...used]).sort((a, b) => a.localeCompare(b, 'tr'));
 }
 
 export async function getAllMediaTypeNames() {

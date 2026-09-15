@@ -332,22 +332,42 @@ export async function deleteCampaign(campaignId, clientId, productId) {
 // oturum içi kozmetik bir yardımcı. Mecra Türü her zaman sade "TV" olarak
 // kaydedilir ki calc.isTV() ve mevcut TV ristorno kuralı bozulmasın.
 const KALEM_FLAVORS = {
-  Banner: { unit: 'Adet', title: 'Adet Bazlı Takip', iconName: 'image' },
-  Kuşak: { unit: 'Saniye', title: 'Saniye Bazlı Takip', iconName: 'clock' }
+  Adet: { unit: 'Adet', title: 'Adet Bazlı Takip', iconName: 'image' },
+  Saniye: { unit: 'Saniye', title: 'Saniye Bazlı Takip', iconName: 'clock' }
 };
 const KALEM_DEFAULT_FLAVOR = { unit: 'Hafta', title: 'Haftalık Takip', iconName: 'calendar' };
 // §is-turu-birim: artık ayrı bir TV alt-tür seçimi (Sponsor/Banner/Kuşak
 // pilleri) yok — haftalık takip birimi doğrudan İş Türü alanına yazılan
 // metinden anlaşılıyor, Mecra Türü ne olursa olsun (sadece TV'ye özel değil).
-// "Sponsorluk" (ya da tanınmayan başka bir iş türü) → Hafta, "Banner"/"Bant"
-// → Adet, "Kuşak" → Saniye. Kullanıcı İş Türü'nü değiştirdikçe otomatik
-// güncellenir (bkz. openMediaForm/quickNewCampaign'daki İş Türü input
-// dinleyicileri).
+// Anahtar kelime listesi repo.js'teki WORK_TYPES_BY_MEDIA_TYPE'daki (TV,
+// Radio, Gazete, Açık Hava, Dijital, Sosyal Medya, YouTube, Instagram,
+// Influencer, Sinema) küratörlü iş türlerinin TAMAMINI tanıyacak şekilde
+// genişletildi:
+//   SANİYE — yayın SÜRESİNE göre satılan formatlar: Kuşak, dijital LED
+//   ekran (saniye bazlı loop), sinemada fragman öncesi reklam, YouTube
+//   pre-roll/mid-roll.
+//   ADET — fiziksel/sayılabilir TEKİL ürünler: Bant/Banner, açık hava
+//   panoları (Billboard/Megalight/Megaboard/Raket-CLP/Totem/Cadde
+//   Bayrağı/Otobüs Durağı/Yer Grafiği), gazete baskı ilanları (Tam/Yarım
+//   Sayfa, Künye, Kupon), sosyal medya/influencer'da tekil gönderi
+//   (Gönderi/Story/Reels/Paylaşım), YouTube'da tekil video (Dedicated
+//   Video), influencer'da tekil etkinlik katılımı.
+//   HAFTA (varsayılan) — geri kalan her şey: sponsorluk/program/kanal
+//   paketleri, giydirme, advertorial, uzun vadeli iş birlikleri vb. —
+//   bunlar süre/paket bazlı satılır.
+// Kullanıcı İş Türü'nü değiştirdikçe otomatik güncellenir (bkz.
+// openMediaForm/quickNewCampaign'daki İş Türü input dinleyicileri).
+const KALEM_SANIYE_KEYWORDS = ['kuşak', 'led ekran', 'fragman', 'pre-roll', 'mid-roll'];
+const KALEM_ADET_KEYWORDS = [
+  'banner', 'bant', 'billboard', 'megalight', 'megaboard', 'raket', 'clp', 'totem',
+  'cadde bayrağı', 'otobüs durağı', 'yer grafiği', 'tam sayfa', 'yarım sayfa', 'künye',
+  'kupon', 'gönderi', 'story', 'reels', 'paylaşım', 'dedicated video', 'etkinlik katılım'
+];
 function kalemFlavorForWorkType(workType) {
   const key = (workType || '').trim().toLocaleLowerCase('tr-TR');
   if (!key) return KALEM_DEFAULT_FLAVOR;
-  if (key.includes('banner') || key.includes('bant')) return KALEM_FLAVORS.Banner;
-  if (key.includes('kuşak')) return KALEM_FLAVORS.Kuşak;
+  if (KALEM_SANIYE_KEYWORDS.some((k) => key.includes(k))) return KALEM_FLAVORS.Saniye;
+  if (KALEM_ADET_KEYWORDS.some((k) => key.includes(k))) return KALEM_FLAVORS.Adet;
   return KALEM_DEFAULT_FLAVOR;
 }
 
@@ -1967,7 +1987,6 @@ export async function quickNewCampaign() {
       <input id="qcCampName" placeholder="Boş bırakılırsa ürün adı kullanılır">
     </div>
     <div class="detail-divider" style="margin:12px 0;"></div>
-    <p class="hint" style="margin:0 0 10px;">${icon('monitor', { size: 13, className: 'icon-inline' })} İstersen ilk mecra/yüklenici kaydını da hemen ekle — istemezsen boş bırak, kampanyanın içinden daha sonra eklersin.</p>
     <div class="field"><label>Mecra Türü</label>
       <select id="qcMediaTypeSelect">
         ${repo.DEFAULT_MEDIA_TYPES.map((t) => `<option value="${escapeHtml(t)}" ${t === 'TV' ? 'selected' : ''}>${escapeHtml(t)}</option>`).join('')}
