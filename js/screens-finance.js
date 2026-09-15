@@ -189,9 +189,12 @@ export async function renderMecraHome() {
   setActiveNav('mecra');
   setFabVisible(true);
   setFabAction(() => window.H.openVendorQuickAddForm());
+  // §nav-redesign temizliği: buradaki topbar "+" düğmesi, sayfadaki alt
+  // menü "+" (FAB) ile birebir aynı fonksiyona (openVendorQuickAddForm)
+  // gidiyordu — iki ayrı düğme aynı işi yapıyordu. FAB zaten her zaman
+  // görünür olduğu için topbar'daki tekrar eden düğme kaldırıldı.
   setTopbar(`
     <div class="left"><h1>Mecralar</h1></div>
-    <div class="right"><button class="icon-btn add" onclick="H.openVendorQuickAddForm()">${icon('plus')}</button></div>
   `);
   setContent(`<div class="list-loading">Yükleniyor…</div>`);
   setContent(await vendorHierarchyBody());

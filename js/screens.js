@@ -666,6 +666,13 @@ export async function renderMediaDetail({ mediaId }) {
       ${calc.isTV(media.mediaType) && isAdmin() ? `<div class="note-box"><b>TV Ristorno Kuralı</b>Ristorno ödemeden düşülmez; yıl sonunda TV Yıllık Ristorno üzerinden tahsil edilir.</div>` : ''}
     </div>
 
+    ${media.budgetEnabled && isAdmin() && Array.isArray(media.budgetItems) && media.budgetItems.length ? `
+    <div class="detail-card">
+      <h3>Kalem Kalem Takip</h3>
+      ${media.budgetItems.map((it) => `<div class="detail-row"><span class="k">${escapeHtml(it.label)}</span><span class="v">${fmt(it.amount)}</span></div>`).join('')}
+      <div class="detail-row total"><span class="k">Toplam</span><span class="v">${fmt(media.budgetItems.reduce((s, it) => s + (Number(it.amount) || 0), 0))}</span></div>
+    </div>` : ''}
+
     <div class="detail-card">
       <h3>Ödeme Takibi${groupCount > 1 ? ' (bu tedarikçinin kampanyadaki tüm kayıtları)' : ''}</h3>
       <div class="detail-row"><span class="k">Ödenecek (KDV Dahil)</span><span class="v">${fmt(vendorGroupNet)}</span></div>
