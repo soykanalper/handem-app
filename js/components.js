@@ -213,6 +213,21 @@ export function vatBadge(vatRate) {
   return rate ? `<span class="chip amber">KDV %${rate}</span>` : '';
 }
 
+// §musteri-mecra-eslesme: bir listenin (müşteriler ya da mecralar/
+// yükleniciler) fazla tahsilat/ödeme satırlarını "tutar · isim" rakam-isim
+// etiketleri olarak üretir — her biri kendi (müşteri,mecra) çiftinin
+// fazlasına ait çeke tıklanabilir (bkz. H.goToExcessOrigin, screens.js).
+// `side` 'client' ise her item'ın primaryId'si clientId, counterpart'ı mecra/
+// yüklenici adıdır (Ana Sayfa, Finans→Müşteri, Müşteri detayı); 'vendor' ise
+// tam tersi (Finans→Mecra, Mecra/Yüklenici detayı). `items`: her biri
+// {primaryId, counterpart, label, amount} — düzleştirme/attribution işini
+// çağıran taraf yapar (bkz. aggregate.js getClientVendorPairs/
+// getVendorClientPairs), bu fonksiyon sadece görüntülüyor.
+export function excessPairsHtml(items, side) {
+  if (!items || !items.length) return '';
+  return `<div class="excess-pairs">${items.map((it) => `<span class="excess-pair" onclick="event.stopPropagation();H.goToExcessOrigin('${side}','${jsAttr(it.primaryId)}','${jsAttr(it.counterpart)}')">${fmt(it.amount)} · ${escapeHtml(it.label)}</span>`).join('')}</div>`;
+}
+
 export function emptyState(emoji, title, sub, actionHtml) {
   // `sub` and `actionHtml` are wrapped in their own block-level tags so they
   // always stack on separate lines. Previously `sub` was a bare inline text

@@ -6,6 +6,15 @@
 
 export const TV_TYPE = 'TV';
 
+// §birlesik-yazim: bu dosya kasıtlı olarak hiçbir şey import etmiyor (saf
+// fonksiyonlar, DOM/IndexedDB yok) — util.js'teki normKey ile birebir aynı
+// mantığın küçük, bağımsız bir kopyası. Yüklenici adı karşılaştırmalarının
+// (vendorGroupInCampaign/vendorGroupPaid) "ATV" ile "Atv" gibi yazım
+// farklarını ayrı ayrı gruplamaması için kullanılıyor.
+function normKey(s) {
+  return (s || '').trim().toLocaleLowerCase('tr-TR');
+}
+
 export function isTV(mediaType) {
   return (mediaType || '').trim().toUpperCase() === TV_TYPE;
 }
@@ -141,13 +150,49 @@ export function campaignSummary(campaign, mediaList, collections, payments) {
   };
 }
 
+// ---- customer receivable split across vendors within one campaign ---------
+// §musteri-mecra-eslesme: bir kampanyanın müşteri alacağı (ajans ücreti
+// dahil) artık mecra/yüklenici bazında da kırılabiliyor — her mecranın
+// kendi satış payı + varsa ajans ücretinin o satış payına orantılı bir
+// kısmı. ÖNEMLİ: bu, bir TAHSİLATIN (gerçek para hareketinin) hangi
+// mecraya ait olduğunu TAHMİN ETMEK için DEĞİL — sadece "bu mecranın bu
+// kampanyadaki alacağı ne kadar" sorusuna deterministik bir cevap vermek
+// için var. Tahsilatın kendisi asla otomatik bölüştürülmez (bkz.
+// aggregate.js getClientVendorPairs) — kullanıcıyla konuşulup onaylanan
+// kural budur. Kampanyada tek mecra varsa zaten tüm alacak (ajans ücreti
+// dahil) tek adaya gider, oran hesabına bile gerek kalmaz.
+export function campaignVendorReceivables(campaign, mediaList) {
+  const list = (mediaList || []).filter((m) => !m.deleted && (m.vendor || '').trim());
+  const totalSales = list.reduce((s, m) => s + (Number(m.sales) || 0), 0);
+  const agencyFee = campaignAgencyFee(campaign, totalSales);
+  const agencyFeeInclusive = vatInclusive(agencyFee, campaign ? campaign.agencyFeeVatRate : null);
+
+  const byVendor = new Map(); // vendorKey -> { vendor, receivable, sales }
+  list.forEach((m) => {
+    const key = normKey(m.vendor);
+    if (!byVendor.has(key)) byVendor.set(key, { vendor: m.vendor.trim(), receivable: 0, sales: 0 });
+    const entry = byVendor.get(key);
+    entry.receivable += mediaReceivableInclusive(m);
+    entry.sales += Number(m.sales) || 0;
+  });
+  if (agencyFeeInclusive && byVendor.size) {
+    const vendorCount = byVendor.size;
+    byVendor.forEach((entry) => {
+      const share = totalSales > 0 ? (entry.sales / totalSales) : (1 / vendorCount);
+      entry.receivable += agencyFeeInclusive * share;
+    });
+  }
+  return [...byVendor.entries()].map(([vendorKey, v]) => ({ vendorKey, vendor: v.vendor, receivable: v.receivable }));
+}
+
 // ---- vendor-within-campaign grouping ---------------------------------------
 // Vendor payments are recorded at (campaign, vendor) granularity, not per
 // individual media line (spec §23). When a vendor appears more than once in
 // the same campaign, its net payable / paid / remaining are shown at that
 // grouped level on every one of that vendor's media detail screens.
 export function vendorGroupInCampaign(mediaList, vendor) {
-  return (mediaList || []).filter((m) => !m.deleted && m.vendor === vendor);
+  const key = normKey(vendor);
+  return (mediaList || []).filter((m) => !m.deleted && normKey(m.vendor) === key);
 }
 
 // §kdv-fix: KDV dahil — this feeds every vendor remaining/excess/"Kalan"
@@ -157,8 +202,9 @@ export function vendorGroupNetPayable(mediaList, vendor) {
 }
 
 export function vendorGroupPaid(payments, campaignId, vendor) {
+  const key = normKey(vendor);
   return (payments || [])
-    .filter((p) => !p.deleted && p.campaignId === campaignId && p.vendor === vendor)
+    .filter((p) => !p.deleted && p.campaignId === campaignId && normKey(p.vendor) === key)
     .reduce((s, p) => s + (Number(p.amount) || 0), 0);
 }
 

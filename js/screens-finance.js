@@ -7,7 +7,7 @@ import * as calc from './calc.js';
 import * as agg from './aggregate.js';
 import { fmt, fmtN, formatDate, escapeHtml, jsAttr, todayISO, toast, normKey } from './util.js';
 import { setTopbar, setContent, setActiveNav, setFabVisible, setFabAction, navigate, refresh, openSheet, closeSheet, openLightbox, confirmDialog } from './ui.js';
-import { avatarHtml, payRowHtml, chequeRowHtml, chequeStatusChip, chequeUsedFragment, emptyState, photoStripHtml, photoGalleryHtml, kunyeCardHtml, invoiceSectionHtml } from './components.js';
+import { avatarHtml, payRowHtml, chequeRowHtml, chequeStatusChip, chequeUsedFragment, emptyState, photoStripHtml, photoGalleryHtml, kunyeCardHtml, invoiceSectionHtml, excessPairsHtml } from './components.js';
 import { icon } from './icons.js';
 import { isAdmin } from './cloud/team.js';
 
@@ -61,8 +61,13 @@ export async function renderFinanceCustomerList() {
     </div>
   `;
   if (totals.excess > 0) {
-    const excessClientNames = clients.filter((c) => c.totalSummary.customerExcess > 0).map((c) => c.client.name);
-    html += `<div class="note-box"><b>Fazla Tahsilat</b>${fmt(totals.excess)} — müşterilerden alacaklarından fazla tahsil edilmiş.${excessClientNames.length ? ` <span class="excess-who">${excessClientNames.map(escapeHtml).join(', ')}</span>` : ''}</div>`;
+    // §musteri-mecra-eslesme: gereksiz açıklama cümlesi kaldırıldı — her
+    // etiket kendi (müşteri,mecra) çiftinin fazlasına ait çeke tıklanabilir.
+    const excessItems = [];
+    clients.forEach((c) => (c.vendorPairs || []).forEach((p) => {
+      if (p.excess > 0) excessItems.push({ primaryId: c.client.id, counterpart: p.vendor, label: c.client.name, amount: p.excess });
+    }));
+    html += `<div class="note-box"><b>Fazla Tahsilat</b>${excessPairsHtml(excessItems, 'client')}</div>`;
   }
 
   if (clients.length === 0) {
@@ -303,8 +308,14 @@ export async function renderFinanceVendorList() {
     </div>
   `;
   if (totals.excess > 0) {
-    const excessVendorNames = vendors.filter((v) => v.totalExcess > 0).map((v) => v.vendor);
-    html += `<div class="note-box"><b>Fazla Ödeme</b>${fmt(totals.excess)} — yüklenicilere borçlarından fazla ödeme yapılmış.${excessVendorNames.length ? ` <span class="excess-who">${excessVendorNames.map(escapeHtml).join(', ')}</span>` : ''}</div>`;
+    // §musteri-mecra-eslesme: Fazla Tahsilat tarafıyla tutarlı olsun diye
+    // aynı düzenleme burada da — gereksiz açıklama cümlesi kaldırıldı, her
+    // etiket kendi (mecra,müşteri) çiftinin fazlasına ait çeke tıklanabilir.
+    const excessItems = [];
+    vendors.forEach((v) => (v.clientPairs || []).forEach((p) => {
+      if (p.excess > 0) excessItems.push({ primaryId: v.vendor, counterpart: p.clientId, label: p.clientName, amount: p.excess });
+    }));
+    html += `<div class="note-box"><b>Fazla Ödeme</b>${excessPairsHtml(excessItems, 'vendor')}</div>`;
   }
 
   if (vendors.length === 0) {
@@ -439,7 +450,14 @@ export async function renderFinanceVendorDetail({ vendor }) {
       <div class="si red"><div class="label">Kalan</div><div class="value">${fmtN(data.totalRemaining)}</div></div>
     </div>
   `;
-  if (data.totalExcess > 0) html += `<div class="note-box"><b>Fazla Ödeme</b>${fmt(data.totalExcess)}</div>`;
+  if (data.totalExcess > 0) {
+    // §musteri-mecra-eslesme: bu yüklenicinin fazlası artık müşteri bazında
+    // kırılıyor — her etiket kendi çiftinin fazlasına ait çeke gider.
+    const excessItems = (data.clientPairs || [])
+      .filter((p) => p.excess > 0)
+      .map((p) => ({ primaryId: vendorName, counterpart: p.clientId, label: p.clientName, amount: p.excess }));
+    html += `<div class="note-box"><b>Fazla Ödeme</b>${excessPairsHtml(excessItems, 'vendor')}</div>`;
+  }
 
   html += kunyeCardHtml(vendorProfile);
 

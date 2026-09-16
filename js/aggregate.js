@@ -34,10 +34,163 @@ export async function getCampaignsWithSummary(campaigns) {
 
 export async function getClientAggregate(clientId) {
   const campaigns = await repo.getCampaignsForClient(clientId);
-  const withSummary = await getCampaignsWithSummary(campaigns);
+  const [withSummary, vendorPairsResult] = await Promise.all([
+    getCampaignsWithSummary(campaigns),
+    getClientVendorPairs(clientId)
+  ]);
   const activeCount = withSummary.filter((c) => c.active).length;
   const totalSummary = calc.sumCampaignSummaries(withSummary.map((c) => c.summary));
-  return { campaigns: withSummary, activeCount, totalSummary };
+  // §musteri-mecra-eslesme: customerRemaining/customerExcess'i artık ham
+  // client-wide toplamdan DEĞİL, her (müşteri,mecra) çiftinin kendi
+  // bağımsız remaining/excess'inin toplamından alıyoruz — bir mecradaki
+  // fazla, başka bir mecranın kalanını asla kapatmasın diye. `+
+  // unattributedCollected` sadece bu alan eklenmeden önce girilmiş, birden
+  // fazla mecralı bir kampanyaya ait eski/etiketsiz tahsilatlar için —
+  // hangi mecraya ait olduğu bilinmediğinden fazlaya da kalan hesabına da
+  // dahil edilmiyor, ayrı bir "mecra belirtilmemiş" rakamı olarak duruyor.
+  const vendorPairs = vendorPairsResult.pairs;
+  const customerRemaining = vendorPairs.reduce((s, p) => s + p.remaining, 0);
+  const customerExcess = vendorPairs.reduce((s, p) => s + p.excess, 0);
+  totalSummary.customerRemaining = customerRemaining;
+  totalSummary.customerExcess = customerExcess;
+  return {
+    campaigns: withSummary, activeCount, totalSummary,
+    vendorPairs, unattributedCollected: vendorPairsResult.unattributedCollected
+  };
+}
+
+// §musteri-mecra-eslesme: bir müşterinin "fazla tahsilat / kalan alacak"
+// durumu artık müşterinin TÜMÜ için tek bir netleşme değil — kullanıcıyla
+// konuşulup onaylanan kural gereği HER (müşteri, mecra/yüklenici) çifti
+// kendi bağımsız hesabına sahip. Bir mecradaki fazla tahsilat başka bir
+// mecranın kalan borcunu ASLA kapatamaz. Bir tahsilat elle bir mecraya
+// işaretlenmişse (openCollectionForm'daki yeni alan) doğrudan ona yazılır;
+// işaretlenmemişse VE o kampanyada tek mecra varsa otomatik ona gider
+// (bölüştürme değil, zaten tek aday); kampanyada birden fazla mecra varken
+// işaretlenmemiş bir tahsilat varsa (sadece bu alan eklenmeden önce
+// girilmiş eski kayıtlarda olabilir — yeni tahsilatlarda form bunu zorunlu
+// kılıyor) hiçbir mecraya yazılmaz, `unattributedCollected` içinde ayrı
+// tutulur — asla tahmini bölüştürülmez.
+export async function getClientVendorPairs(clientId) {
+  const campaigns = (await repo.getCampaignsForClient(clientId)).filter((c) => !c.deleted);
+  const perCampaign = await Promise.all(campaigns.map(async (campaign) => {
+    const [media, collections] = await Promise.all([
+      repo.getMediaForCampaign(campaign.id),
+      repo.getCollectionsForCampaign(campaign.id)
+    ]);
+    return {
+      campaign,
+      media: media.filter((m) => !m.deleted),
+      collections: collections.filter((c) => !c.deleted)
+    };
+  }));
+
+  const pairs = new Map(); // vendorKey -> { vendor, receivable, collected }
+  let unattributedCollected = 0;
+  const unattributedCollections = [];
+
+  perCampaign.forEach(({ campaign, media, collections }) => {
+    const vendorReceivables = calc.campaignVendorReceivables(campaign, media);
+    vendorReceivables.forEach(({ vendorKey, vendor, receivable }) => {
+      if (!pairs.has(vendorKey)) pairs.set(vendorKey, { vendor, receivable: 0, collected: 0 });
+      pairs.get(vendorKey).receivable += receivable;
+    });
+    const vendorKeysInCampaign = vendorReceivables.map((v) => v.vendorKey);
+    collections.forEach((col) => {
+      const amount = Number(col.amount) || 0;
+      const explicitVendor = (col.vendor || '').trim();
+      if (explicitVendor) {
+        const key = normKey(explicitVendor);
+        if (!pairs.has(key)) pairs.set(key, { vendor: explicitVendor, receivable: 0, collected: 0 });
+        pairs.get(key).collected += amount;
+      } else if (vendorKeysInCampaign.length === 1) {
+        pairs.get(vendorKeysInCampaign[0]).collected += amount;
+      } else {
+        unattributedCollected += amount;
+        unattributedCollections.push(col);
+      }
+    });
+  });
+
+  const list = [...pairs.entries()].map(([vendorKey, v]) => {
+    const { remaining, excess } = calc.remainingAndExcess(v.receivable, v.collected);
+    return { vendorKey, vendor: v.vendor, receivable: v.receivable, collected: v.collected, remaining, excess };
+  }).sort((a, b) => a.vendor.localeCompare(b.vendor, 'tr'));
+
+  return { pairs: list, unattributedCollected, unattributedCollections };
+}
+
+// §musteri-mecra-eslesme: yüklenici tarafı zaten baştan müşteri bazında
+// kırılabilir durumda — Ödeme formunda müşteri+kampanya+yüklenici birlikte
+// giriliyor, hiçbir tahmine gerek yok (bkz. calc.js vendorGroupNetPayable).
+// Burada sadece bunu müşteri kırılımıyla topluyoruz.
+export async function getVendorClientPairs(vendorName) {
+  const allMedia = await repo.getAllMedia();
+  const vendorKey = normKey(vendorName);
+  const vendorMedia = allMedia.filter((m) => !m.deleted && normKey(m.vendor) === vendorKey);
+  const campaignIds = [...new Set(vendorMedia.map((m) => m.campaignId))];
+  const campaigns = await Promise.all(campaignIds.map((id) => repo.getCampaign(id)));
+
+  const byClient = new Map(); // clientId -> { clientName, payable, paid }
+  campaigns.forEach((campaign) => {
+    if (!campaign || campaign.deleted || !campaign.clientId) return;
+    const media = vendorMedia.filter((m) => m.campaignId === campaign.id);
+    const payable = calc.vendorGroupNetPayable(media, vendorName);
+    if (!byClient.has(campaign.clientId)) byClient.set(campaign.clientId, { clientName: campaign.clientName || '', payable: 0, paid: 0 });
+    byClient.get(campaign.clientId).payable += payable;
+  });
+
+  const allPayments = await repo.getAllPayments();
+  allPayments.filter((p) => !p.deleted && normKey(p.vendor) === vendorKey && p.clientId).forEach((p) => {
+    if (!byClient.has(p.clientId)) byClient.set(p.clientId, { clientName: p.clientName || '', payable: 0, paid: 0 });
+    byClient.get(p.clientId).paid += Number(p.amount) || 0;
+  });
+
+  return [...byClient.entries()].map(([clientId, v]) => {
+    const { remaining, excess } = calc.remainingAndExcess(v.payable, v.paid);
+    return { clientId, clientName: v.clientName, payable: v.payable, paid: v.paid, remaining, excess };
+  }).sort((a, b) => a.clientName.localeCompare(b.clientName, 'tr'));
+}
+
+// §musteri-mecra-eslesme: fazla tahsilat/ödeme genelde bir çekten doğuyor
+// (kullanıcı: "genelde fazla ödeme sadece çekle oluyor") — bir (müşteri,
+// mecra) çiftinin fazlasına tıklanınca kullanıcıyı doğrudan o çeke
+// götürebilmek için, o çifte ait çek etiketli tahsilat kayıtlarından en
+// güncelini (tarihe göre) buluyoruz. Attribution mantığı getClientVendorPairs
+// ile BİREBİR aynı olmalı (elle etiketlenmiş kayıt VEYA kampanyada tek mecra
+// varsa otomatik) — yoksa burada bulunan çek, oradaki toplamla tutarsız
+// olabilir. Eşleşme yoksa null döner, çağıran taraf müşteri sayfasına düşer.
+export async function findLatestChequeIdForClientVendorPair(clientId, vendorName) {
+  const vendorKey = normKey(vendorName);
+  const campaigns = (await repo.getCampaignsForClient(clientId)).filter((c) => !c.deleted);
+  const candidates = [];
+  for (const campaign of campaigns) {
+    const [media, collections] = await Promise.all([
+      repo.getMediaForCampaign(campaign.id),
+      repo.getCollectionsForCampaign(campaign.id)
+    ]);
+    const vendorKeysInCampaign = [...new Set(media.filter((m) => !m.deleted && m.vendor).map((m) => normKey(m.vendor)))];
+    collections.filter((c) => !c.deleted && c.chequeId).forEach((c) => {
+      const explicitVendor = (c.vendor || '').trim();
+      const resolvedKey = explicitVendor ? normKey(explicitVendor) : (vendorKeysInCampaign.length === 1 ? vendorKeysInCampaign[0] : null);
+      if (resolvedKey === vendorKey) candidates.push(c);
+    });
+  }
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  return candidates[0].chequeId;
+}
+
+// §musteri-mecra-eslesme: yüklenici tarafında Ödeme kayıtları zaten baştan
+// müşteri+mecra birlikte taşıdığı için (bkz. getVendorClientPairs) burada
+// ayrıca kampanya bazlı bir çözümlemeye gerek yok — doğrudan filtrelenebilir.
+export async function findLatestChequeIdForVendorClientPair(vendorName, clientId) {
+  const vendorKey = normKey(vendorName);
+  const allPayments = await repo.getAllPayments();
+  const candidates = allPayments.filter((p) => !p.deleted && p.chequeId && p.clientId === clientId && normKey(p.vendor) === vendorKey);
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  return candidates[0].chequeId;
 }
 
 export async function getAllClientsAggregate() {
@@ -214,13 +367,22 @@ export async function getVendorAggregate(vendorName) {
     totalProfit: acc.totalProfit + c.profit
   }), { totalNetPayable: 0, totalPaid: 0, totalPurchase: 0, totalRistorno: 0, totalSales: 0, totalProfit: 0 });
 
-  const totals = calc.remainingAndExcess(totalsAgg.totalNetPayable, totalsAgg.totalPaid);
+  // §musteri-mecra-eslesme: totalRemaining/totalExcess'i artık bu
+  // yüklenicinin TÜM müşterileri genelindeki ham nettendan DEĞİL, her
+  // (müşteri,bu-yüklenici) çiftinin kendi bağımsız remaining/excess'inin
+  // toplamından alıyoruz — bir müşteriye olan fazla ödeme başka bir
+  // müşterinin kalan borcunu asla kapatmasın diye (bkz. getClientVendorPairs
+  // ile birebir aynı mantık, yön tersine).
+  const clientPairs = await getVendorClientPairs(vendorName);
+  const totalRemaining = clientPairs.reduce((s, p) => s + p.remaining, 0);
+  const totalExcess = clientPairs.reduce((s, p) => s + p.excess, 0);
   return {
     vendor: vendorName,
     mediaTypes: [...mediaTypes.values()].sort((a, b) => a.localeCompare(b, 'tr')),
     campaigns: perCampaign.filter((c) => c.campaign && !c.campaign.deleted),
     ...totalsAgg,
-    totalRemaining: totals.remaining, totalExcess: totals.excess
+    clientPairs,
+    totalRemaining, totalExcess
   };
 }
 

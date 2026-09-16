@@ -1473,6 +1473,10 @@ export async function openCollectionForm(ctx = {}) {
       <input id="fColCampaign" list="fColCampaignList" placeholder="Var olan bir kampanya seç veya yeni bir isim yaz" value="${campaignObj ? escapeHtml(campaignObj.name || campaignObj.productName) : ''}">
       ${datalist('fColCampaignList', campaigns.map((c) => c.name || c.productName))}
     </div>
+    <div class="field" id="fColVendorField" style="display:none;"><label>Mecra / Yüklenici *</label>
+      <select id="fColVendor"></select>
+      <div class="kalem-note" id="fColVendorHint"></div>
+    </div>
     <div class="row2">
       <div class="field"><label>Tarih *</label><input id="fColDate" type="date" value="${existing ? existing.date : todayISO()}"></div>
       <div class="field"><label>Tutar *</label><input id="fColAmount" type="number" step="0.01" value="${existing ? existing.amount : ''}" placeholder="0"></div>
@@ -1510,6 +1514,55 @@ export async function openCollectionForm(ctx = {}) {
     };
     clientInput.addEventListener('input', reloadCampaigns);
     clientInput.addEventListener('change', reloadCampaigns);
+
+    // §fazla-tahsilat-mecra: bkz. saveCollection'daki aynı not — bir
+    // tahsilatın hangi mecraya/yükleniciye ait olduğu artık (varsa) burada
+    // seçiliyor. Alan SADECE seçilen kampanyanın kendi mecra kayıtlarını
+    // listeler (genel yüklenici listesi değil). Kampanyada hiç mecra yoksa
+    // alan tamamen gizli kalır (kaydedilecek bir kampanya-geneli tahsilat
+    // olur). Tek mecra varsa otomatik/kilitli seçilir, sormaya gerek yok —
+    // zaten tek doğru cevap var. Birden fazla mecra varsa seçim ZORUNLU —
+    // sistem asla kendi kendine oranlı bölüştürme yapmaz (bkz. saveCollection).
+    const vendorField = sheet.querySelector('#fColVendorField');
+    const vendorSelect = sheet.querySelector('#fColVendor');
+    const vendorHint = sheet.querySelector('#fColVendorHint');
+    const presetVendor = existing ? existing.vendor : '';
+    const refreshVendorField = async () => {
+      const clientMatch = clients.find((c) => c.name.trim().toLocaleLowerCase('tr-TR') === clientInput.value.trim().toLocaleLowerCase('tr-TR'));
+      const camps = clientMatch ? await repo.getCampaignsForClient(clientMatch.id) : [];
+      const campMatch = camps.find((c) => (c.name || c.productName || '').trim().toLocaleLowerCase('tr-TR') === campInput.value.trim().toLocaleLowerCase('tr-TR'));
+      if (!campMatch) { vendorField.style.display = 'none'; vendorSelect.innerHTML = ''; return; }
+      const media = await repo.getMediaForCampaign(campMatch.id);
+      const vendorNames = [];
+      const seen = new Set();
+      media.filter((m) => !m.deleted && m.vendor).forEach((m) => {
+        const key = normKey(m.vendor);
+        if (seen.has(key)) return;
+        seen.add(key);
+        vendorNames.push(m.vendor.trim());
+      });
+      if (vendorNames.length === 0) {
+        vendorField.style.display = 'none';
+        vendorSelect.innerHTML = '';
+      } else if (vendorNames.length === 1) {
+        vendorField.style.display = '';
+        vendorSelect.disabled = true;
+        vendorSelect.innerHTML = `<option value="${escapeHtml(vendorNames[0])}">${escapeHtml(vendorNames[0])}</option>`;
+        vendorHint.textContent = 'Bu kampanyada tek mecra var, otomatik seçildi.';
+      } else {
+        vendorField.style.display = '';
+        vendorSelect.disabled = false;
+        vendorSelect.innerHTML = '<option value="">Seç…</option>' + vendorNames.map((v) => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
+        const matchPreset = presetVendor && vendorNames.find((v) => normKey(v) === normKey(presetVendor));
+        vendorSelect.value = matchPreset || '';
+        vendorHint.textContent = 'Bu kampanyada birden fazla mecra var — bu tahsilat hangisi için, seçmen gerekiyor.';
+      }
+    };
+    clientInput.addEventListener('input', refreshVendorField);
+    clientInput.addEventListener('change', refreshVendorField);
+    campInput.addEventListener('input', refreshVendorField);
+    campInput.addEventListener('change', refreshVendorField);
+    refreshVendorField();
   });
 }
 
@@ -1531,6 +1584,25 @@ export async function saveCollection(collectionId) {
   const clientId = client.id;
   const campaignId = campaign.id;
   const campaignName = campaign.name || campaign.productName;
+
+  // §fazla-tahsilat-mecra: DOM'daki geçici seçim state'ine güvenmek yerine
+  // (kampanya adı elle değiştirilip resolveOrCreateCampaign farklı/yeni bir
+  // kampanyaya çözülmüş olabilir) kaydetme anında kampanyanın GERÇEK mecra
+  // listesi tekrar sunucudan (IndexedDB) okunuyor — form alanı sadece
+  // kullanıcı deneyimi için, doğrulama her zaman gerçek veriye bakar.
+  const campaignMediaForVendor = (await repo.getMediaForCampaign(campaignId)).filter((m) => !m.deleted && m.vendor);
+  const vendorNamesInCampaign = [];
+  { const seen = new Set();
+    campaignMediaForVendor.forEach((m) => { const k = normKey(m.vendor); if (!seen.has(k)) { seen.add(k); vendorNamesInCampaign.push(m.vendor.trim()); } }); }
+  const vendorFieldEl = document.getElementById('fColVendor');
+  const rawVendorInput = (vendorFieldEl ? vendorFieldEl.value : '').trim();
+  if (vendorNamesInCampaign.length > 1 && !rawVendorInput) {
+    toast('Bu kampanyada birden fazla mecra var — tahsilatın hangi mecra için olduğunu seç', 'error');
+    return;
+  }
+  const vendor = rawVendorInput
+    ? await repo.canonicalVendorName(rawVendorInput)
+    : (vendorNamesInCampaign.length === 1 ? vendorNamesInCampaign[0] : '');
 
   const existing = collectionId ? await repo.getCollection(collectionId) : null;
   const existingCheque = existing && existing.chequeId ? await repo.getCheque(existing.chequeId) : null;
@@ -1586,6 +1658,7 @@ export async function saveCollection(collectionId) {
     const data = {
       clientId, clientName: client ? client.name : '',
       campaignId, campaignName,
+      vendor,
       date, amount: Number(amount), paymentType, note,
       chequeId, dueDate,
       photos: formPhotos.slice()

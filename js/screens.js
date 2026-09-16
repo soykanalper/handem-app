@@ -8,7 +8,7 @@ import * as agg from './aggregate.js';
 import * as reminders from './reminders.js';
 import { fmt, fmtN, formatDate, escapeHtml, jsAttr, todayISO, hashColor, initials, toast, normKey } from './util.js';
 import { setTopbar, setContent, setActiveNav, setFabVisible, setFabAction, navigate, goBack } from './ui.js';
-import { avatarHtml, campaignCardHtml, mediaRowHtml, payRowHtml, chequeRowHtml, reminderRowHtml, emptyState, vatDetailRow, vatBadge, kunyeCardHtml, invoiceSectionHtml } from './components.js';
+import { avatarHtml, campaignCardHtml, mediaRowHtml, payRowHtml, chequeRowHtml, reminderRowHtml, emptyState, vatDetailRow, vatBadge, kunyeCardHtml, invoiceSectionHtml, excessPairsHtml } from './components.js';
 import { icon } from './icons.js';
 import { isCloudActive } from './cloud/bootstrap.js';
 import { isAdmin, isSunumModu } from './cloud/team.js';
@@ -78,8 +78,14 @@ export async function renderHome() {
     </div>
   `;
   if (totals.customerExcess > 0) {
-    const excessClientNames = clients.filter((c) => c.totalSummary.customerExcess > 0).map((c) => c.client.name);
-    html += `<div class="note-box"><b>Fazla Tahsilat</b>${fmt(totals.customerExcess)}${excessClientNames.length ? ` <span class="excess-who">${excessClientNames.map(escapeHtml).join(', ')}</span>` : ''}</div>`;
+    // §musteri-mecra-eslesme: tek bir birleşik rakam yerine, her biri kendi
+    // (müşteri,mecra) çiftine ait — ve o çiftin fazlasını doğuran çeke
+    // tıklanabilir — "tutar · isim" etiketleri yan yana.
+    const excessItems = [];
+    clients.forEach((c) => (c.vendorPairs || []).forEach((p) => {
+      if (p.excess > 0) excessItems.push({ primaryId: c.client.id, counterpart: p.vendor, label: c.client.name, amount: p.excess });
+    }));
+    html += `<div class="note-box"><b>Fazla Tahsilat</b>${excessPairsHtml(excessItems, 'client')}</div>`;
   }
 
   // §home-campaigns: Ana Sayfa artık müşteri listesi değil, tüm müşteriler
@@ -284,7 +290,12 @@ export async function renderClientDetail({ clientId }) {
     </div>
   `;
   if (s.customerExcess > 0) {
-    html += `<div class="note-box"><b>Fazla Tahsilat</b>${fmt(s.customerExcess)} bu müşteriden fazladan tahsil edilmiş.</div>`;
+    // §musteri-mecra-eslesme: bu müşterinin fazlası artık mecra/yüklenici
+    // bazında kırılıyor — her etiket kendi çiftinin fazlasına ait çeke gider.
+    const excessItems = (aggData.vendorPairs || [])
+      .filter((p) => p.excess > 0)
+      .map((p) => ({ primaryId: client.id, counterpart: p.vendor, label: p.vendor, amount: p.excess }));
+    html += `<div class="note-box"><b>Fazla Tahsilat</b>${excessPairsHtml(excessItems, 'client')}</div>`;
   }
 
   html += kunyeCardHtml(client);
@@ -727,4 +738,33 @@ export async function renderMediaDetail({ mediaId }) {
   html += `<button class="btn danger" onclick="H.deleteMedia('${media.id}','${media.campaignId}')">Mecra Kaydını Sil</button>`;
 
   setContent(html);
+}
+
+// ============================================================================
+// §musteri-mecra-eslesme — fazla tahsilat/ödeme çift satırından çeke gidiş.
+// ============================================================================
+// Bir (müşteri,mecra) ya da (mecra,müşteri) çiftinin fazla tutarına
+// tıklanınca kullanıcıyı doğrudan o fazlalığı oluşturan çeke götürür
+// (kullanıcı: "fazla çekin çekler sayfasındaki çeke gitmesini istiyorum").
+// side='client' → primaryId=clientId, counterpart=vendorName (müşteri
+// detayında bir mecra satırına tıklanınca). side='vendor' →
+// primaryId=vendorName, counterpart=clientId (mecra/yüklenici detayında bir
+// müşteri satırına tıklanınca). Çek bulunamazsa (nadir — nakit/havale
+// kaynaklı fazla ya da bu alan eklenmeden önceki etiketsiz eski kayıt)
+// kullanıcıyı bilgilendirip ilgili genel sayfaya (mecra ya da müşteri
+// detayı) yönlendirir; asla sessizce hiçbir şey yapmaz.
+export async function goToExcessOrigin(side, primaryId, counterpart) {
+  const chequeId = side === 'client'
+    ? await agg.findLatestChequeIdForClientVendorPair(primaryId, counterpart)
+    : await agg.findLatestChequeIdForVendorClientPair(primaryId, counterpart);
+  if (chequeId) {
+    navigate(`/finance/cheques/${chequeId}`);
+    return;
+  }
+  toast('Bu fazlalığa ait bir çek bulunamadı — muhtemelen nakit/havale kaynaklı bir hareket.');
+  if (side === 'client') {
+    navigate(`/finance/vendor/${encodeURIComponent(counterpart)}`);
+  } else {
+    navigate(`/customers/${counterpart}`);
+  }
 }
