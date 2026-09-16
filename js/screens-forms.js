@@ -7,7 +7,7 @@
 import * as repo from './repo.js';
 import * as calc from './calc.js';
 import * as agg from './aggregate.js';
-import { fmt, fmtN, todayISO, addDays, daysBetween, formatDate, escapeHtml, jsAttr, toast, uid } from './util.js';
+import { fmt, fmtN, todayISO, addDays, daysBetween, formatDate, escapeHtml, jsAttr, toast, uid, normKey } from './util.js';
 import { openSheet, closeSheet, navigate, refresh, openLightbox, noteFieldHtml, confirmDialog } from './ui.js';
 import { pickPhoto } from './photo.js';
 import { chequeStatusChip, photoStripHtml, photoGalleryHtml } from './components.js';
@@ -371,6 +371,42 @@ function kalemFlavorForWorkType(workType) {
   return KALEM_DEFAULT_FLAVOR;
 }
 
+// §mecra-turu-yanlisligi-onleme: bkz. repo.suggestMediaTypeSplit — kaydetme
+// anında (saveMedia/saveVendorQuickAdd/quickNewCampaignConfirm, hepsi çağırır)
+// Mecra Türü alanına elle yazılan metin DAHA ÖNCE HİÇ kullanılmamış yeni bir
+// mecra türü oluşturacaksa VE "<var olan bir Mecra Türü> <fazladan
+// kelimeler>" kalıbına uyuyorsa kullanıcıya sorulur. "Evet, düzelt" derse
+// düzeltilmiş {mediaType, workType} döner (İş Türü alanı zaten doluysa
+// kullanıcının kendi yazdığı değer korunur, sadece Mecra Türü düzeltilir);
+// "Hayır, böyle kaydet" derse ya da öneri yoksa/zaten var olan bir yazımsa
+// null döner, çağıran taraf orijinal değerlerle devam eder.
+async function confirmSuspiciousMediaType(rawMediaType, currentWorkType) {
+  const raw = (rawMediaType || '').trim();
+  if (!raw) return null;
+  // "Zaten biliniyor" kontrolü hem seçim listesine (mediaTypes deposu) HEM DE
+  // var olan mecra kayıtlarına (media store) bakıyor. Sadece seçim listesine
+  // bakmak yetmezdi: eski/elle girilmiş bir kayıt (ör. addMediaTypeName hiç
+  // çağrılmadan doğrudan oluşturulmuş) her açılıp değişiklik yapılmadan
+  // kaydedildiğinde bu uyarıyı gereksiz yere tekrar tekrar gösterirdi.
+  const [existingNames, existingMedia] = await Promise.all([
+    repo.getAllMediaTypeNames(),
+    repo.getAllMedia()
+  ]);
+  const rawKey = normKey(raw);
+  const alreadyKnown =
+    existingNames.some((n) => normKey(n) === rawKey) ||
+    existingMedia.some((m) => normKey(m.mediaType) === rawKey);
+  if (alreadyKnown) return null;
+  const suggestion = repo.suggestMediaTypeSplit(raw);
+  if (!suggestion) return null;
+  const finalWorkType = currentWorkType || suggestion.workType;
+  const proceed = await confirmDialog(
+    `"${raw}" yeni bir Mecra Türü olarak kaydedilecek — ama bu bir mecra türü değil, "${suggestion.mediaType}" mecra türünün bir İş Türü'ne benziyor. Mecra Türü'nü "${suggestion.mediaType}" olarak düzelteyim mi (İş Türü "${finalWorkType}" olarak kalır)?`,
+    { okLabel: 'Evet, düzelt', cancelLabel: 'Hayır, böyle kaydet', danger: false }
+  );
+  return proceed ? { mediaType: suggestion.mediaType, workType: finalWorkType } : null;
+}
+
 // §kalem-satis: her kalem satırı artık Alış (amount) VE Satış (salesAmount)
 // olmak üzere iki ayrı tutar taşıyor — eski kayıtlarda salesAmount hiç
 // yoktu, bu yüzden okurken her zaman `Number(...) || 0` ile geriye dönük
@@ -678,15 +714,23 @@ export async function saveMedia(campaignId, mediaId) {
   const rawMediaType = document.getElementById('fMediaType').value.trim();
   const rawVendor = document.getElementById('fVendor').value.trim();
   const rawWorkType = document.getElementById('fWorkType').value.trim();
+
+  // §mecra-turu-yanlisligi-onleme: bkz. repo.suggestMediaTypeSplit — "Tv dizi
+  // sponsorluk" gibi aslında bir İş Türü olan bir metin Mecra Türü'ne
+  // yazılırsa, kaydetmeden önce kullanıcıya sorulur.
+  const suspiciousFix = await confirmSuspiciousMediaType(rawMediaType, rawWorkType);
+  const effectiveMediaType = suspiciousFix ? suspiciousFix.mediaType : rawMediaType;
+  const effectiveWorkType = suspiciousFix ? suspiciousFix.workType : rawWorkType;
+
   // §birlesik-yazim: kaydedilmeden önce Mecra Türü/Yüklenici/İş Türü zaten
   // var olan bir yazımla (case/boşluk farkı göz ardı edilerek) eşleşiyorsa o
   // yazıma "snap" edilir — bundan sonraki her kayıt aynı çatı altında
   // birleşir, yeni bir yazım varyantı asla oluşmaz. Gerçekten yeni bir isimse
   // (eşleşme yoksa) elle yazılan hâliyle aynen kaydedilir.
   const [mediaType, vendor, workType] = await Promise.all([
-    repo.canonicalMediaType(rawMediaType),
+    repo.canonicalMediaType(effectiveMediaType),
     repo.canonicalVendorName(rawVendor),
-    repo.canonicalWorkType(rawWorkType)
+    repo.canonicalWorkType(effectiveWorkType)
   ]);
 
   // §kalem-takip: kalem takibi açıksa Alış Tutarı ekrandaki (otomatik
@@ -927,17 +971,23 @@ export async function saveVendorQuickAdd() {
   const rawVendor = document.getElementById('fvVendor').value.trim();
   if (!rawMediaType) { toast('Mecra türü zorunlu', 'error'); return; }
   if (!rawVendor) { toast('Yüklenici zorunlu', 'error'); return; }
+  const rawWorkType = document.getElementById('fvWorkType').value.trim();
+
+  // §mecra-turu-yanlisligi-onleme: bkz. saveMedia'daki aynı kontrol.
+  const suspiciousFix = await confirmSuspiciousMediaType(rawMediaType, rawWorkType);
+  const effectiveMediaType = suspiciousFix ? suspiciousFix.mediaType : rawMediaType;
+  const effectiveWorkType = suspiciousFix ? suspiciousFix.workType : rawWorkType;
+
   // §birlesik-yazim: var olan yazıma snap edilir (bkz. saveMedia).
-  const [mediaType, vendor] = await Promise.all([
-    repo.canonicalMediaType(rawMediaType),
-    repo.canonicalVendorName(rawVendor)
+  const [mediaType, vendor, workType] = await Promise.all([
+    repo.canonicalMediaType(effectiveMediaType),
+    repo.canonicalVendorName(rawVendor),
+    repo.canonicalWorkType(effectiveWorkType)
   ]);
 
   const kunye = readKunyeFields();
   const clientName = document.getElementById('fvClient').value.trim();
   let campaignName = document.getElementById('fvCampaign').value.trim();
-  const rawWorkType = document.getElementById('fvWorkType').value.trim();
-  const workType = await repo.canonicalWorkType(rawWorkType);
   const purchase = document.getElementById('fvPurchase').value;
   const sales = document.getElementById('fvSales').value;
   const ristornoPercent = document.getElementById('fvRistorno').value;
@@ -2187,11 +2237,17 @@ export async function quickNewCampaignConfirm() {
   const rawMediaType = document.getElementById('qcMediaType').value.trim();
   const rawVendor = document.getElementById('qcVendor').value.trim();
   const rawWorkType = document.getElementById('qcWorkType').value.trim();
+
+  // §mecra-turu-yanlisligi-onleme: bkz. saveMedia'daki aynı kontrol.
+  const suspiciousFix = await confirmSuspiciousMediaType(rawMediaType, rawWorkType);
+  const effectiveMediaType = suspiciousFix ? suspiciousFix.mediaType : rawMediaType;
+  const effectiveWorkType = suspiciousFix ? suspiciousFix.workType : rawWorkType;
+
   // §birlesik-yazim: var olan yazıma snap edilir (bkz. saveMedia).
   const [mediaType, vendor, workType] = await Promise.all([
-    repo.canonicalMediaType(rawMediaType),
+    repo.canonicalMediaType(effectiveMediaType),
     repo.canonicalVendorName(rawVendor),
-    repo.canonicalWorkType(rawWorkType)
+    repo.canonicalWorkType(effectiveWorkType)
   ]);
   // §kalem-takip: kalem takibi açıksa Alış Tutarı ekrandaki (otomatik
   // hesaplanmış, disabled) alandan değil, doğrudan kalem satırlarından
