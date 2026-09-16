@@ -124,6 +124,35 @@ export async function canonicalMediaType(raw) { return toCanonical(raw, await ge
 export async function canonicalWorkType(raw) { return toCanonical(raw, await getAllWorkTypeNames()); }
 export async function canonicalVendorName(raw) { return toCanonical(raw, await getAllVendorNames()); }
 
+// §mecra-turu-yanlisligi-onleme: gerçek bir olayda kullanıcı Mecra Türü
+// alanına ("elle yazacağım" moduyla) "Tv dizi sponsorluk" yazmıştı — bu bir
+// mecra türü değil, TV'nin bir İş Türü'ydü, ama sistem bunu TV'den tamamen
+// kopuk, yepyeni bir mecra türü olarak kaydetti (TV'nin altında ATV kalması
+// gerekirken, "Tv dizi sponsorluk" diye ayrı bir mecra türü altında Star TV
+// belirdi). canonicalMediaType SADECE case/boşluk varyantlarını (ör. "tv" /
+// "TV ") yakalar — "TV" ismiyle BAŞLAYIP devamında bambaşka kelimeler taşıyan
+// bir metni yakalamaz, çünkü o teknik olarak "yeni" bir isimdir. Bu fonksiyon
+// tam o boşluğu kapatır: yazılan metin var olan bir Mecra Türü'nün (
+// DEFAULT_MEDIA_TYPES) ismiyle başlayıp arkasından fazladan kelime taşıyorsa,
+// muhtemelen "<Mecra Türü> <İş Türü>" karışıklığıdır — {mediaType, workType}
+// olarak ayrıştırılmış hâliyle döner, aksi halde null. Çağıran taraf
+// (screens-forms.js confirmSuspiciousMediaType) bunu SADECE bu yazım daha
+// önce hiç kullanılmamışsa (getAllMediaTypeNames'te yoksa) kullanıcıya sorar
+// — zaten var olan (yanlış da olsa daha önce kaydedilmiş) bir yazım için bir
+// daha sorulmaz.
+export function suggestMediaTypeSplit(rawMediaType) {
+  const raw = (rawMediaType || '').trim();
+  if (!raw) return null;
+  const key = normKey(raw);
+  for (const known of DEFAULT_MEDIA_TYPES) {
+    const knownKey = normKey(known);
+    if (key !== knownKey && key.startsWith(knownKey + ' ')) {
+      return { mediaType: known, workType: raw.slice(known.length).trim() };
+    }
+  }
+  return null;
+}
+
 // §kunye: mecra/yüklenici künye (şirket profili) alanları — Fatura Adresi,
 // Adres, VKN, IBAN, Kaşe fotoğrafı — bu ismin `vendors` kaydına eklenir.
 // `vendors` deposu zaten her mecra kaydında addVendorName ile otomatik
