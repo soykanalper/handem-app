@@ -233,6 +233,13 @@ a{ color:inherit; }
    ile aynı görsel dilde (italik, soluk renk), sadece bağımsız kullanılabilir. */
 .excess-who{ font-size:var(--fs-1); font-weight:500; font-style:italic; color:var(--ink-faint); }
 
+/* §musteri-mecra-eslesme: "4.074.000 Glint · 1.000.000 Altınkılıç" gibi
+   yan yana, her biri kendi (müşteri,mecra) çiftinin fazlasına ait çeke
+   tıklanabilir rakam-isim etiketleri. */
+.excess-pairs{ display:flex; flex-wrap:wrap; gap:5px 12px; margin-top:2px; }
+.excess-pair{ cursor:pointer; color:var(--amber-dark); font-weight:var(--fw-semibold); white-space:nowrap; }
+.excess-pair:hover{ text-decoration:underline; }
+
 /* compact expandable "Detay" note control — a small link that reveals a
    focused write/read/delete area instead of a permanently-open text block
    cluttering the row (campaign, media, cheque, payment/collection notes). */
