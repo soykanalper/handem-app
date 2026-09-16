@@ -34,10 +34,7 @@ export async function getCampaignsWithSummary(campaigns) {
 
 export async function getClientAggregate(clientId) {
   const campaigns = await repo.getCampaignsForClient(clientId);
-  const [withSummary, vendorPairsResult] = await Promise.all([
-    getCampaignsWithSummary(campaigns),
-    getClientVendorPairs(clientId)
-  ]);
+  const withSummary = await getCampaignsWithSummary(campaigns);
   const activeCount = withSummary.filter((c) => c.active).length;
   const totalSummary = calc.sumCampaignSummaries(withSummary.map((c) => c.summary));
   // §musteri-mecra-eslesme: customerRemaining/customerExcess'i artık ham
@@ -48,6 +45,18 @@ export async function getClientAggregate(clientId) {
   // fazla mecralı bir kampanyaya ait eski/etiketsiz tahsilatlar için —
   // hangi mecraya ait olduğu bilinmediğinden fazlaya da kalan hesabına da
   // dahil edilmiyor, ayrı bir "mecra belirtilmemiş" rakamı olarak duruyor.
+  // §perf-pair: getClientVendorPairs(clientId) burada AYRICA çağrılıp
+  // kampanya + mecra + tahsilat verisi ikinci kez çekilmiyordu (aynı veri
+  // hem getCampaignsWithSummary hem getClientVendorPairs tarafından
+  // bağımsız olarak çekiliyordu — client başına iki katı Firestore
+  // round-trip'i, ve bu da müşteri detayı/Ana Sayfa/Finans→Müşteri
+  // sayfalarının yavaş açılmasının asıl sebebiydi). Artık computeClientVendorPairs
+  // (saf/I-O'suz fonksiyon) doğrudan yukarıda zaten çekilmiş olan
+  // withSummary'nin media/collections'ını kullanıyor — hiçbir ekstra sorgu
+  // atılmıyor.
+  const vendorPairsResult = computeClientVendorPairs(
+    withSummary.map((c) => ({ campaign: c.campaign, media: c.media, collections: c.collections }))
+  );
   const vendorPairs = vendorPairsResult.pairs;
   const customerRemaining = vendorPairs.reduce((s, p) => s + p.remaining, 0);
   const customerExcess = vendorPairs.reduce((s, p) => s + p.excess, 0);
@@ -71,32 +80,24 @@ export async function getClientAggregate(clientId) {
 // girilmiş eski kayıtlarda olabilir — yeni tahsilatlarda form bunu zorunlu
 // kılıyor) hiçbir mecraya yazılmaz, `unattributedCollected` içinde ayrı
 // tutulur — asla tahmini bölüştürülmez.
-export async function getClientVendorPairs(clientId) {
-  const campaigns = (await repo.getCampaignsForClient(clientId)).filter((c) => !c.deleted);
-  const perCampaign = await Promise.all(campaigns.map(async (campaign) => {
-    const [media, collections] = await Promise.all([
-      repo.getMediaForCampaign(campaign.id),
-      repo.getCollectionsForCampaign(campaign.id)
-    ]);
-    return {
-      campaign,
-      media: media.filter((m) => !m.deleted),
-      collections: collections.filter((c) => !c.deleted)
-    };
-  }));
-
+// Saf/I-O'suz: {campaign, media, collections} listesinden (müşteri,mecra)
+// çiftlerini hesaplar. getClientAggregate zaten çekilmiş withSummary
+// verisini yeniden kullanabilsin diye ayrı bir fonksiyon (bkz. §perf-pair).
+function computeClientVendorPairs(perCampaignData) {
   const pairs = new Map(); // vendorKey -> { vendor, receivable, collected }
   let unattributedCollected = 0;
   const unattributedCollections = [];
 
-  perCampaign.forEach(({ campaign, media, collections }) => {
-    const vendorReceivables = calc.campaignVendorReceivables(campaign, media);
+  (perCampaignData || []).forEach(({ campaign, media, collections }) => {
+    const activeMedia = (media || []).filter((m) => !m.deleted);
+    const activeCollections = (collections || []).filter((c) => !c.deleted);
+    const vendorReceivables = calc.campaignVendorReceivables(campaign, activeMedia);
     vendorReceivables.forEach(({ vendorKey, vendor, receivable }) => {
       if (!pairs.has(vendorKey)) pairs.set(vendorKey, { vendor, receivable: 0, collected: 0 });
       pairs.get(vendorKey).receivable += receivable;
     });
     const vendorKeysInCampaign = vendorReceivables.map((v) => v.vendorKey);
-    collections.forEach((col) => {
+    activeCollections.forEach((col) => {
       const amount = Number(col.amount) || 0;
       const explicitVendor = (col.vendor || '').trim();
       if (explicitVendor) {
@@ -120,28 +121,37 @@ export async function getClientVendorPairs(clientId) {
   return { pairs: list, unattributedCollected, unattributedCollections };
 }
 
+export async function getClientVendorPairs(clientId) {
+  const campaigns = (await repo.getCampaignsForClient(clientId)).filter((c) => !c.deleted);
+  const perCampaign = await Promise.all(campaigns.map(async (campaign) => {
+    const [media, collections] = await Promise.all([
+      repo.getMediaForCampaign(campaign.id),
+      repo.getCollectionsForCampaign(campaign.id)
+    ]);
+    return { campaign, media, collections };
+  }));
+  return computeClientVendorPairs(perCampaign);
+}
+
 // §musteri-mecra-eslesme: yüklenici tarafı zaten baştan müşteri bazında
 // kırılabilir durumda — Ödeme formunda müşteri+kampanya+yüklenici birlikte
 // giriliyor, hiçbir tahmine gerek yok (bkz. calc.js vendorGroupNetPayable).
 // Burada sadece bunu müşteri kırılımıyla topluyoruz.
-export async function getVendorClientPairs(vendorName) {
-  const allMedia = await repo.getAllMedia();
+// Saf/I-O'suz: bu yüklenicinin medyasını taşıyan kampanyalardan (her biri
+// {campaign, media}) ve tüm ödemelerden (müşteri kırılımına bkz.
+// getVendorAggregate'in de aynı fonksiyonu paylaşabilmesi için) (mecra,
+// müşteri) çiftlerini hesaplar.
+function computeVendorClientPairs(vendorName, campaignsForVendor, allPayments) {
   const vendorKey = normKey(vendorName);
-  const vendorMedia = allMedia.filter((m) => !m.deleted && normKey(m.vendor) === vendorKey);
-  const campaignIds = [...new Set(vendorMedia.map((m) => m.campaignId))];
-  const campaigns = await Promise.all(campaignIds.map((id) => repo.getCampaign(id)));
-
   const byClient = new Map(); // clientId -> { clientName, payable, paid }
-  campaigns.forEach((campaign) => {
+  (campaignsForVendor || []).forEach(({ campaign, media }) => {
     if (!campaign || campaign.deleted || !campaign.clientId) return;
-    const media = vendorMedia.filter((m) => m.campaignId === campaign.id);
-    const payable = calc.vendorGroupNetPayable(media, vendorName);
+    const payable = calc.vendorGroupNetPayable(media || [], vendorName);
     if (!byClient.has(campaign.clientId)) byClient.set(campaign.clientId, { clientName: campaign.clientName || '', payable: 0, paid: 0 });
     byClient.get(campaign.clientId).payable += payable;
   });
 
-  const allPayments = await repo.getAllPayments();
-  allPayments.filter((p) => !p.deleted && normKey(p.vendor) === vendorKey && p.clientId).forEach((p) => {
+  (allPayments || []).filter((p) => !p.deleted && normKey(p.vendor) === vendorKey && p.clientId).forEach((p) => {
     if (!byClient.has(p.clientId)) byClient.set(p.clientId, { clientName: p.clientName || '', payable: 0, paid: 0 });
     byClient.get(p.clientId).paid += Number(p.amount) || 0;
   });
@@ -150,6 +160,19 @@ export async function getVendorClientPairs(vendorName) {
     const { remaining, excess } = calc.remainingAndExcess(v.payable, v.paid);
     return { clientId, clientName: v.clientName, payable: v.payable, paid: v.paid, remaining, excess };
   }).sort((a, b) => a.clientName.localeCompare(b.clientName, 'tr'));
+}
+
+export async function getVendorClientPairs(vendorName) {
+  const [allMedia, allPayments] = await Promise.all([repo.getAllMedia(), repo.getAllPayments()]);
+  const vendorKey = normKey(vendorName);
+  const vendorMedia = allMedia.filter((m) => !m.deleted && normKey(m.vendor) === vendorKey);
+  const campaignIds = [...new Set(vendorMedia.map((m) => m.campaignId))];
+  const campaigns = await Promise.all(campaignIds.map((id) => repo.getCampaign(id)));
+  const campaignsForVendor = campaigns.map((campaign) => ({
+    campaign,
+    media: campaign ? vendorMedia.filter((m) => m.campaignId === campaign.id) : []
+  }));
+  return computeVendorClientPairs(vendorName, campaignsForVendor, allPayments);
 }
 
 // §musteri-mecra-eslesme: fazla tahsilat/ödeme genelde bir çekten doğuyor
@@ -163,19 +186,24 @@ export async function getVendorClientPairs(vendorName) {
 export async function findLatestChequeIdForClientVendorPair(clientId, vendorName) {
   const vendorKey = normKey(vendorName);
   const campaigns = (await repo.getCampaignsForClient(clientId)).filter((c) => !c.deleted);
-  const candidates = [];
-  for (const campaign of campaigns) {
+  // §perf-pair: was a sequential for-loop (await each campaign's media+
+  // collections one campaign at a time before starting the next) — parallelized
+  // with Promise.all since each campaign's fetch/compute is independent; order
+  // doesn't matter here since results are combined into one array and re-sorted
+  // by date afterward anyway.
+  const perCampaign = await Promise.all(campaigns.map(async (campaign) => {
     const [media, collections] = await Promise.all([
       repo.getMediaForCampaign(campaign.id),
       repo.getCollectionsForCampaign(campaign.id)
     ]);
     const vendorKeysInCampaign = [...new Set(media.filter((m) => !m.deleted && m.vendor).map((m) => normKey(m.vendor)))];
-    collections.filter((c) => !c.deleted && c.chequeId).forEach((c) => {
+    return collections.filter((c) => !c.deleted && c.chequeId).filter((c) => {
       const explicitVendor = (c.vendor || '').trim();
       const resolvedKey = explicitVendor ? normKey(explicitVendor) : (vendorKeysInCampaign.length === 1 ? vendorKeysInCampaign[0] : null);
-      if (resolvedKey === vendorKey) candidates.push(c);
+      return resolvedKey === vendorKey;
     });
-  }
+  }));
+  const candidates = perCampaign.flat();
   if (!candidates.length) return null;
   candidates.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   return candidates[0].chequeId;
@@ -318,24 +346,37 @@ export function groupMediaByType(mediaList) {
 }
 
 // -------- vendor aggregation across all campaigns ----------------------------
-export async function getVendorAggregate(vendorName) {
-  const allMedia = await repo.getAllMedia();
+// §perf-pair: `preloaded` (optional) lets a caller that already fetched the
+// whole business's media/payments/campaigns once (bkz. getAllVendorsAggregate)
+// hand them in directly instead of each vendor independently re-fetching the
+// entire collections again — this was the single biggest source of the
+// "sistem yavaş açılıyor" şikayeti, çünkü Finans→Mecra ve Ana Sayfa her
+// yüklenici için ayrı ayrı TÜM medya/ödeme koleksiyonlarını yeniden çekiyordu
+// (yüklenici sayısı kadar katlanan gereksiz Firestore round-trip'i). Tek
+// başına çağrıldığında (preloaded verilmezse) eskisi gibi kendi verisini
+// çeker — public API/davranış aynı kalır.
+export async function getVendorAggregate(vendorName, preloaded) {
+  const [allMedia, allPayments, allCampaigns] = preloaded
+    ? [preloaded.allMedia, preloaded.allPayments, preloaded.allCampaigns]
+    : await Promise.all([repo.getAllMedia(), repo.getAllPayments(), repo.getAllCampaigns()]);
+  // getAllCampaigns() (dbGetAll) siler-görünmeyenleri zaten dışarıda bırakır,
+  // tıpkı eskiden `!c.campaign.deleted` filtresinin yaptığı gibi — silinmiş bir
+  // kampanya bu Map'te bulunmaz, campaignsById.get(cid) undefined döner, ve
+  // aşağıdaki `c.campaign && !c.campaign.deleted` filtresi onu yine dışarıda
+  // bırakır (bkz. §musteri-mecra-eslesme'deki dbGet/dbGetAll notu).
+  const campaignsById = new Map(allCampaigns.map((c) => [c.id, c]));
   const vendorKey = normKey(vendorName);
   const vendorMedia = allMedia.filter((m) => normKey(m.vendor) === vendorKey);
   const campaignIds = [...new Set(vendorMedia.map((m) => m.campaignId))];
   const mediaTypes = new Map(); // §birlesik-yazim: typeKey -> ilk görülen yazım
 
-  // §perf: each campaign's (campaign, payments) fetch used to happen one
-  // campaign at a time — parallelized here. Sets/array pushes inside a map
-  // callback stay safe because each callback's synchronous work (after its
-  // own await resolves) always finishes in one uninterrupted turn before
-  // another callback's continuation can run — JS never actually interleaves
-  // two callbacks' synchronous statements.
-  const perCampaign = await Promise.all(campaignIds.map(async (cid) => {
-    const [campaign, paymentsRaw] = await Promise.all([
-      repo.getCampaign(cid),
-      repo.getPaymentsForCampaign(cid)
-    ]);
+  // §perf-pair: artık ağ çağrısı içermeyen saf bir hesaplama — campaign ve
+  // payments verisi yukarıda zaten (bir kez) çekilmiş allCampaigns/allPayments
+  // içinden Map/filter ile bulunuyor, kampanya başına ayrı repo.getCampaign/
+  // repo.getPaymentsForCampaign çağrısı atılmıyor.
+  const perCampaign = campaignIds.map((cid) => {
+    const campaign = campaignsById.get(cid);
+    const paymentsRaw = allPayments.filter((p) => p.campaignId === cid);
     const mediaInCampaign = vendorMedia.filter((m) => m.campaignId === cid);
     const typesInCampaign = new Map();
     mediaInCampaign.forEach((m) => {
@@ -356,7 +397,7 @@ export async function getVendorAggregate(vendorName) {
       campaign, media: mediaInCampaign, netPayable, paid, remaining, excess, payments,
       purchase, sales, ristorno, profit, mediaTypesInCampaign: [...typesInCampaign.values()]
     };
-  }));
+  });
 
   const totalsAgg = perCampaign.reduce((acc, c) => ({
     totalNetPayable: acc.totalNetPayable + c.netPayable,
@@ -373,7 +414,12 @@ export async function getVendorAggregate(vendorName) {
   // toplamından alıyoruz — bir müşteriye olan fazla ödeme başka bir
   // müşterinin kalan borcunu asla kapatmasın diye (bkz. getClientVendorPairs
   // ile birebir aynı mantık, yön tersine).
-  const clientPairs = await getVendorClientPairs(vendorName);
+  // §perf-pair: getVendorClientPairs(vendorName) burada AYRICA çağrılıp tüm
+  // medya/ödeme koleksiyonları üçüncü kez çekilmiyordu — computeVendorClientPairs
+  // (saf fonksiyon) doğrudan yukarıda zaten elde bulunan perCampaign/allPayments
+  // verisini kullanıyor.
+  const campaignsForVendor = perCampaign.map((c) => ({ campaign: c.campaign, media: c.media }));
+  const clientPairs = computeVendorClientPairs(vendorName, campaignsForVendor, allPayments);
   const totalRemaining = clientPairs.reduce((s, p) => s + p.remaining, 0);
   const totalExcess = clientPairs.reduce((s, p) => s + p.excess, 0);
   return {
@@ -386,9 +432,17 @@ export async function getVendorAggregate(vendorName) {
   };
 }
 
+// §perf-pair: allMedia/allPayments/allCampaigns TEK SEFER burada çekilip her
+// yüklenici için paylaşılıyor — eskiden her yüklenici getVendorAggregate
+// içinde bunları BAĞIMSIZ olarak yeniden çekiyordu (N yüklenici varsa N kat
+// tekrar eden tüm-koleksiyon sorgusu). Finans→Mecra ve Ana Sayfa'nın yavaş
+// açılmasının en büyük sebebi buydu.
 export async function getAllVendorsAggregate() {
-  const names = await repo.getAllVendorNames();
-  const results = await Promise.all(names.map((name) => getVendorAggregate(name)));
+  const [names, allMedia, allPayments, allCampaigns] = await Promise.all([
+    repo.getAllVendorNames(), repo.getAllMedia(), repo.getAllPayments(), repo.getAllCampaigns()
+  ]);
+  const preloaded = { allMedia, allPayments, allCampaigns };
+  const results = await Promise.all(names.map((name) => getVendorAggregate(name, preloaded)));
   return results.filter((agg) => agg.campaigns.length > 0);
 }
 
